@@ -497,7 +497,9 @@ async function vueEdl(id) {
           erreurs.push(...r.erreurs);
         } catch (err) {
           if (err.deconnecte) return;
-          erreurs.push(f.name || `photo ${i + 1}`);
+          // La raison est affichée pour pouvoir diagnostiquer un échec sur téléphone
+          const raison = err instanceof TypeError ? 'connexion interrompue' : err.message;
+          erreurs.push(`${f.name || `photo ${i + 1}`} (${raison})`);
         }
       }
       if (erreurs.length) toast(`Photo(s) non envoyée(s) : ${erreurs.join(', ')}`, true);
