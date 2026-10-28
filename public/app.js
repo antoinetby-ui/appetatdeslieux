@@ -113,6 +113,29 @@ function padSignature() {
   };
 }
 
+// Convertit une photo en JPEG de 1600 px maximum, orientation corrigée.
+// En cas d'échec (navigateur ancien), le fichier d'origine est envoyé tel quel.
+async function preparerPhoto(fichier, max = 1600) {
+  try {
+    let image;
+    try {
+      image = await createImageBitmap(fichier, { imageOrientation: 'from-image' });
+    } catch {
+      const url = URL.createObjectURL(fichier);
+      image = await new Promise((ok, ko) => { const img = new Image(); img.onload = () => ok(img); img.onerror = ko; img.src = url; })
+        .finally(() => URL.revokeObjectURL(url));
+    }
+    const l = image.width, ha = image.height, r = Math.min(1, max / Math.max(l, ha));
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(l * r), height: Math.round(ha * r) });
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
+    if (!blob) return fichier;
+    return new File([blob], (fichier.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return fichier;
+  }
+}
+
 function visionneuse(src) {
   const v = h('div', { class: 'voile visionneuse', onclick: () => v.remove() }, h('img', { src }));
   document.body.append(v);
@@ -340,6 +363,7 @@ async function vueEdl(id) {
   const sauverEdl = debounce(async (champs) => { try { await api(`/edl/${id}`, { method: 'PUT', body: champs }); } catch (e) { toast(e.message, true); } });
 
   function rendre() {
+    const defilement = window.scrollY; // le contenu est redessiné : on garde la position à l'écran
     const signe = Boolean(edl.sig_bailleur || edl.sig_locataire);
     const complet = Boolean(edl.sig_bailleur && edl.sig_locataire);
     const typeAjout = h('select', {}, catalogue.typesPieces.map((t) => h('option', { value: t }, t)), h('option', { value: '__autre' }, 'Autre…'));
@@ -391,6 +415,7 @@ async function vueEdl(id) {
 
       carteSignatures(complet),
     );
+    window.scrollTo(0, defilement);
   }
 
   function carteSignatures(complet) {
@@ -456,17 +481,28 @@ async function vueEdl(id) {
 
   function rendrePiece(piece) {
     const sauverPiece = debounce((champs) => api(`/edl-pieces/${piece.id}`, { method: 'PUT', body: champs }).catch((e) => toast(e.message, true)));
+    // Envoi une par une, après conversion sur le téléphone (JPEG 1600 px) : rapide en 4G et
+    // compatible avec les photos HEIC de l'iPhone, que le serveur ne sait pas lire.
     const envoyer = async (liste) => {
-      const fd = new FormData();
-      for (const f of liste) fd.append('photos', f);
-      if (!fd.has('photos')) return;
-      toast('Envoi des photos…');
-      try {
-        const r = await api(`/edl-pieces/${piece.id}/photos`, { method: 'POST', body: fd });
-        piece.photos = r.photos;
-        if (r.erreurs.length) toast(`Format non reconnu : ${r.erreurs.join(', ')}`, true); else toast('Photos ajoutées');
-        ouvertes.add(piece.id); rendre();
-      } catch (err) { toast(err.message, true); }
+      const photos = [...liste];
+      if (!photos.length) return;
+      const erreurs = [];
+      for (const [i, f] of photos.entries()) {
+        toast(photos.length > 1 ? `Envoi des photos… ${i + 1}/${photos.length}` : 'Envoi de la photo…');
+        try {
+          const fd = new FormData();
+          fd.append('photos', await preparerPhoto(f));
+          const r = await api(`/edl-pieces/${piece.id}/photos`, { method: 'POST', body: fd });
+          piece.photos = r.photos;
+          erreurs.push(...r.erreurs);
+        } catch (err) {
+          if (err.deconnecte) return;
+          erreurs.push(f.name || `photo ${i + 1}`);
+        }
+      }
+      if (erreurs.length) toast(`Photo(s) non envoyée(s) : ${erreurs.join(', ')}`, true);
+      else toast(photos.length > 1 ? `${photos.length} photos ajoutées` : 'Photo ajoutée');
+      ouvertes.add(piece.id); rendre();
     };
     const fichiers = h('input', { type: 'file', accept: 'image/*', multiple: true, onchange: (e) => envoyer(e.target.files) });
     const camera = h('input', { type: 'file', accept: 'image/*', capture: 'environment', onchange: (e) => envoyer(e.target.files) });

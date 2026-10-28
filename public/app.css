@@ -141,7 +141,9 @@ textarea { min-height: 76px; resize: vertical; }
   letter-spacing: .1em; text-transform: uppercase; margin: 0; transition: border-color .2s, color .2s, background .2s; }
 .ajout-photo b { font-size: 1.6rem; font-weight: 300; letter-spacing: 0; line-height: 1; }
 .ajout-photo:hover { border-color: var(--bronze); color: var(--bronze-fonce); background: #fff; }
-.ajout-photo input { display: none; }
+/* Champ masqué visuellement mais toujours actif (certains téléphones ignorent un champ en display: none) */
+.ajout-photo { position: relative; }
+.ajout-photo input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 .resume { background: #f6efe3; border-left: 2px solid var(--bronze); padding: 12px 14px; border-radius: 2px; margin: 14px 0; }
 .resume textarea { background: transparent; border-color: transparent; padding: 4px 0; }
