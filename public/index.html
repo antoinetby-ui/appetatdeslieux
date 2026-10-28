@@ -3,13 +3,44 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>État des lieux IA</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏠</text></svg>">
+  <meta name="theme-color" content="#f4eee5">
+  <title>Bremakeys — États des lieux</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2214%22 fill=%22%235b5044%22/><circle cx=%2222%22 cy=%2232%22 r=%229%22 fill=%22none%22 stroke=%22%23ebe2d4%22 stroke-width=%224%22/><path d=%22M31 30h22v4h-4v6h-4v-6h-3v4h-4v-4h-7z%22 fill=%22%23ebe2d4%22/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Inter:wght@300;400;500;600&display=swap">
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="cle" viewBox="0 0 210 36">
+      <circle cx="20" cy="18" r="14" fill="none" stroke="currentColor" stroke-width="4.5"/>
+      <circle cx="20" cy="18" r="5" fill="none" stroke="currentColor" stroke-width="2"/>
+      <rect x="33" y="15" width="172" height="6" rx="2" fill="currentColor"/>
+      <rect x="44" y="11" width="4" height="14" rx="1" fill="currentColor"/>
+      <path d="M170 21h6v8h-6zM181 21h5v11h-5zM191 21h6v7h-6z" fill="currentColor"/>
+    </symbol>
+  </svg>
+
+  <div id="intro" aria-hidden="true">
+    <div class="battant gauche"></div>
+    <div class="battant droite"></div>
+    <div class="contenu">
+      <div class="marque">Bremakeys</div>
+      <div class="filet"></div>
+      <div class="devise">États des lieux</div>
+      <div class="serrure">
+        <svg class="cle" viewBox="0 0 210 36"><use href="#cle"/></svg>
+        <div class="plaque"></div>
+      </div>
+    </div>
+  </div>
+
   <header class="topbar">
-    <a href="#/" class="logo">🏠 État des lieux <span>IA</span></a>
+    <a href="#/" class="logo">
+      <svg viewBox="0 0 210 36"><use href="#cle"/></svg>
+      <span><span class="marque">Bremakeys</span><span class="sous-marque">États des lieux</span></span>
+    </a>
     <nav>
       <a href="#/">États des lieux</a>
       <a href="#/biens">Biens</a>

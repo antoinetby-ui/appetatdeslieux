@@ -266,7 +266,7 @@ async function vueEdl(id) {
         h('div', {}, h('h1', {}, `État des lieux ${edl.type === 'sortie' ? 'de sortie' : "d'entrée"} — ${edl.bien.nom}`),
           h('div', { class: 'sous' }, `${dateFr(edl.date)} · ${nomPersonne(edl.proprietaire)} (propriétaire) · ${nomPersonne(edl.locataire)} (locataire)`)),
         h('div', { class: 'actions' },
-          h('a', { class: 'btn primaire', href: `/api/edl/${id}/pdf`, target: '_blank' }, '📄 Générer le PDF'),
+          h('a', { class: 'btn primaire', href: `/api/edl/${id}/pdf`, target: '_blank' }, 'Générer le PDF'),
           h('a', { class: 'btn', href: '#/' }, '← Retour'))),
 
       h('div', { class: 'carte' },
@@ -317,13 +317,13 @@ async function vueEdl(id) {
       if (piece.analyse_at && !confirm('Relancer l\'analyse ? Les éléments détectés par l\'IA seront remplacés (vos ajouts et corrections manuels sont conservés).')) return;
       edl = await api(`/edl-pieces/${piece.id}/analyser`, { method: 'POST' });
       toast('Analyse terminée'); rendre();
-    }, 'Analyse en cours…') }, piece.analyse_at ? '✨ Relancer l\'analyse IA' : '✨ Analyser avec l\'IA');
+    }, 'Analyse en cours…') }, piece.analyse_at ? '✦ Relancer l\'analyse IA' : '✦ Analyser avec l\'IA');
 
     const details = h('details', { class: 'piece', open: ouvertes.has(piece.id), ontoggle: (e) => (e.target.open ? ouvertes.add(piece.id) : ouvertes.delete(piece.id)) },
       h('summary', {},
         h('span', { class: 'nom' }, piece.nom),
         h('span', { class: 'actions' },
-          h('span', { class: 'badge' }, `📷 ${piece.photos.length}`),
+          h('span', { class: 'badge' }, `${piece.photos.length} photo${piece.photos.length > 1 ? 's' : ''}`),
           h('span', { class: 'badge' }, `${piece.elements.length} élément(s)`),
           piece.etat_general && h('span', { class: `badge ${piece.analyse_at ? 'ia' : 'ok'}` }, piece.etat_general))),
       h('div', { class: 'corps' },
@@ -334,8 +334,8 @@ async function vueEdl(id) {
               if (!confirm('Supprimer cette photo ?')) return;
               await api(`/photos/${p.id}`, { method: 'DELETE' }); piece.photos = piece.photos.filter((x) => x.id !== p.id); rendre();
             } }, '✕'))),
-          h('label', { class: 'ajout-photo' }, camera, '📸', 'Prendre une photo'),
-          h('label', { class: 'ajout-photo' }, fichiers, '🖼️', 'Importer des photos')),
+          h('label', { class: 'ajout-photo' }, camera, h('b', {}, '+'), 'Prendre une photo'),
+          h('label', { class: 'ajout-photo' }, fichiers, h('b', {}, '↑'), 'Importer des photos')),
         h('div', { class: 'actions' }, btnIa,
           h('button', { class: 'petit danger', onclick: async () => {
             if (!confirm(`Retirer « ${piece.nom} » de cet état des lieux ?`)) return;
@@ -408,7 +408,7 @@ function vueConnexion() {
       await api('/login', { method: 'POST', body: { password: mdp.value } });
       await demarrer();
     } catch (err) { toast(err.message, true); mdp.select(); }
-  } }, h('h1', {}, 'Connexion'), champ('Mot de passe', mdp), h('button', { class: 'primaire', type: 'submit' }, 'Se connecter')));
+  } }, h('h1', {}, 'Bremakeys'), h('p', { class: 'sous', style: 'text-align:center;margin:-8px 0 8px' }, 'Espace privé'), champ('Mot de passe', mdp), h('button', { class: 'primaire', type: 'submit' }, 'Se connecter')));
   mdp.focus();
 }
 
@@ -449,5 +449,21 @@ async function demarrer() {
   router();
 }
 
+// Animation d'ouverture, jouée une fois par session (un clic la passe).
+function intro() {
+  const el = document.getElementById('intro');
+  let dejaVue = false;
+  try { dejaVue = !!sessionStorage.getItem('introVue'); sessionStorage.setItem('introVue', '1'); } catch {}
+  if (dejaVue) return el.remove();
+  const ouvrir = () => {
+    if (el.classList.contains('ouvre')) return;
+    el.classList.add('ouvre');
+    setTimeout(() => el.remove(), 1000);
+  };
+  const t = setTimeout(ouvrir, matchMedia('(prefers-reduced-motion: reduce)').matches ? 300 : 3100);
+  el.addEventListener('click', () => { clearTimeout(t); ouvrir(); });
+}
+
+intro();
 window.addEventListener('hashchange', router);
 demarrer();

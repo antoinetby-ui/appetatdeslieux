@@ -4,11 +4,12 @@ import path from 'node:path';
 import { PHOTOS_DIR } from './db.js';
 
 // Réglages de coût (modifiables dans les variables d'environnement, sans toucher au code) :
-// - CLAUDE_MODEL : modèle utilisé ; claude-sonnet-5-5 coûte 2× moins, claude-haiku-5-5 ~40× moins.
+// - CLAUDE_MODEL : modèle utilisé ; par défaut le moins cher (Haiku). claude-sonnet-5-5 ou
+//   claude-opus-5-5 sont plus précis mais coûtent ~20 à 40× plus.
 // - CLAUDE_EFFORT : profondeur de réflexion (low | medium | high) ; low réduit la réponse facturée.
 // - IA_IMAGE_MAX : taille des photos envoyées à l'IA, en pixels ; le PDF garde les photos d'origine.
-const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
-const EFFORT = process.env.CLAUDE_EFFORT || 'medium';
+const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-5-5';
+const EFFORT = process.env.CLAUDE_EFFORT || 'low';
 const IMAGE_MAX = Number(process.env.IA_IMAGE_MAX) || 1024;
 // Repli automatique en cas de refus du modèle : pris en charge par Opus 5.x, Sonnet 5.5 et Fable.
 const FALLBACK = /^claude-(opus-5|sonnet-5-5|fable-5)/.test(MODEL);
@@ -42,23 +43,36 @@ const SCHEMA = {
 };
 
 const SYSTEM = `Tu es un expert en états des lieux immobiliers en France (location, loi ALUR).
-On te transmet les photos d'une pièce d'un logement. Établis l'inventaire de ce qui est visible :
+On te transmet plusieurs photos (souvent 5 à 10) d'une même pièce, prises sous différents angles.
+Établis l'inventaire de la pièce tel qu'il figurerait dans un état des lieux professionnel.
 
-- Revêtements (catégorie "revetement") : sol, murs, plafond — matériau, couleur et état.
-- Menuiseries : portes, fenêtres, volets, placards.
-- Électricité : interrupteurs, prises, luminaires, radiateurs électriques (compte-les).
-- Plomberie / sanitaires : évier, lavabo, robinetterie, WC, douche, baignoire.
-- Équipements : électroménager, chaudière, VMC, détecteur de fumée…
-- Mobilier : canapés, lits, chaises, tables, lampes, armoires… avec les quantités exactes.
+Ce qu'il faut relever :
+- Revêtements (catégorie "revetement") : une ligne pour le sol, une pour les murs, une pour le plafond,
+  avec matériau, couleur et état.
+- Menuiseries : portes, fenêtres, volets, placards intégrés.
+- Électricité : prises, interrupteurs, luminaires fixes, radiateurs — avec le nombre.
+- Plomberie : évier, lavabo, robinetterie, WC, douche, baignoire.
+- Équipements : électroménager, chaudière, VMC, détecteur de fumée.
+- Mobilier : chaque meuble (canapé, fauteuil, table, chaises, lit, matelas, armoire, commode,
+  étagère, meuble TV, lampe, miroir, rideaux…) avec la quantité, le matériau ou la couleur,
+  et la taille quand elle est utile (ex. « Canapé 3 places tissu gris », « Lit 140 × 190 »).
+
+Ce qu'il ne faut PAS relever :
+- Les objets personnels et la décoration sans valeur d'inventaire : livres, bibelots, plantes,
+  coussins, vêtements, vaisselle posée, appareils électroniques personnels, produits ménagers.
+- Les détails sans intérêt pour un état des lieux (vis, câbles, plinthes sauf si abîmées).
 
 Règles :
-- Ne liste que ce que tu vois réellement sur les photos ; n'invente rien.
-- Regroupe les objets identiques en une seule ligne avec la quantité (ex. 4 chaises).
-- Une même chose visible sur plusieurs photos ne doit être comptée qu'une fois.
-- Évalue l'état avec l'échelle imposée et décris précisément les défauts visibles
-  (rayures, taches, fissures, trous, traces d'humidité, éclats, jaunissement…).
-- Si un état est difficile à juger sur photo, choisis l'état le plus probable et précise-le dans le commentaire.
-- Rédige en français, de façon factuelle et concise, comme dans un état des lieux officiel.`;
+- Ne liste que ce que tu vois réellement ; n'invente rien.
+- Les photos montrent la MÊME pièce : un objet visible sur plusieurs photos ne compte qu'une fois.
+  Croise les angles pour compter juste (ex. 4 chaises autour d'une table, pas 8).
+- Regroupe les objets identiques en une seule ligne avec la quantité.
+- Vise en général 10 à 25 lignes par pièce : précis sur le mobilier, sans énumérer l'accessoire.
+- Commentaire : 15 mots maximum — matériau/couleur puis défauts visibles (rayure, tache, fissure,
+  trou, éclat, trace d'humidité, jaunissement…). Chaîne vide si rien à signaler.
+- Évalue l'état avec l'échelle imposée ; si c'est difficile à juger sur photo, choisis l'état le
+  plus probable et indique « à vérifier » dans le commentaire.
+- Rédige en français, de façon factuelle et concise.`;
 
 async function photoBlock(fichier) {
   const data = (await sharp(path.join(PHOTOS_DIR, fichier))

@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PHOTOS_DIR } from './db.js';
 
-const BLEU = '#1f3a5f';
-const GRIS = '#666666';
-const LIGNE = '#cccccc';
+const TAUPE = '#5b5044';
+const GRIS = '#8a8073';
+const LIGNE = '#ddd0bd';
+const SABLE = '#efe8dd';
 
 const CATEGORIE_LIBELLE = {
   revetement: 'Revêtement', mobilier: 'Mobilier', equipement: 'Équipement',
@@ -23,8 +24,8 @@ export function genererPdf(edl, out) {
 
   const titre = (t) => {
     ensureSpace(40);
-    doc.moveDown(0.6).font('Helvetica-Bold').fontSize(13).fillColor(BLEU).text(t);
-    doc.moveTo(40, doc.y + 2).lineTo(40 + largeur, doc.y + 2).strokeColor(BLEU).lineWidth(1).stroke();
+    doc.moveDown(0.6).font('Helvetica-Bold').fontSize(13).fillColor(TAUPE).text(t);
+    doc.moveTo(40, doc.y + 2).lineTo(40 + largeur, doc.y + 2).strokeColor(TAUPE).lineWidth(1).stroke();
     doc.moveDown(0.5).font('Helvetica').fontSize(10).fillColor('black');
   };
   const ensureSpace = (h) => { if (doc.y + h > doc.page.height - 60) doc.addPage(); };
@@ -34,7 +35,7 @@ export function genererPdf(edl, out) {
   };
 
   // En-tête
-  doc.font('Helvetica-Bold').fontSize(20).fillColor(BLEU)
+  doc.font('Times-Bold').fontSize(22).fillColor(TAUPE)
     .text(`ÉTAT DES LIEUX ${edl.type === 'sortie' ? 'DE SORTIE' : "D'ENTRÉE"}`, { align: 'center' });
   doc.font('Helvetica').fontSize(11).fillColor(GRIS).text(`Établi le ${dateFr(edl.date)}`, { align: 'center' });
   doc.fillColor('black');
@@ -44,7 +45,7 @@ export function genererPdf(edl, out) {
   const y0 = doc.y;
   const col = largeur / 2 - 10;
   const bloc = (x, label, p) => {
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(BLEU).text(label, x, y0, { width: col });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(TAUPE).text(label, x, y0, { width: col });
     doc.font('Helvetica').fillColor('black').text(nomComplet(p), x, doc.y, { width: col });
     for (const v of [p.adresse, p.telephone, p.email]) if (v) doc.text(v, x, doc.y, { width: col });
     return doc.y;
@@ -73,7 +74,7 @@ export function genererPdf(edl, out) {
   // Pièces
   for (const piece of edl.pieces) {
     doc.addPage();
-    doc.font('Helvetica-Bold').fontSize(15).fillColor(BLEU).text(piece.nom);
+    doc.font('Times-Bold').fontSize(17).fillColor(TAUPE).text(piece.nom);
     if (piece.type !== piece.nom) doc.font('Helvetica').fontSize(10).fillColor(GRIS).text(piece.type);
     doc.fillColor('black').moveDown(0.4);
     champ('État général', piece.etat_general || 'Non renseigné');
@@ -127,7 +128,7 @@ function tableau(doc, elements, largeur, ensureSpace) {
     const h = Math.max(...cols.map((c) => doc.heightOfString(String(vals[c.k] ?? ''), { width: c.w - 6 }))) + 6;
     ensureSpace(h);
     const y = doc.y;
-    if (entete) doc.rect(40, y, largeur, h).fill('#e8eef5');
+    if (entete) doc.rect(40, y, largeur, h).fill(SABLE);
     let x = 40;
     doc.fillColor('black');
     for (const c of cols) {
