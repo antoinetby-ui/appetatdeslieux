@@ -18,8 +18,11 @@ on photographie chaque pièce, l'IA dresse l'inventaire (meubles, équipements, 
    détaillé (catégorie, élément, quantité, état, commentaire sur les défauts visibles).
 5. On **corrige ou ajoute** des éléments à la main. Les éléments manuels (et ceux de l'IA que
    vous avez modifiés) sont conservés si l'on relance l'analyse.
-6. Compteurs, clés, observations, puis **📄 Générer le PDF** (parties, logement, une page par
-   pièce avec tableau d'inventaire et photos, cadres de signature).
+6. Compteurs, clés, observations, puis **signature** : chaque partie coche « Lu et approuvé » et
+   signe au doigt sur l'écran. Dès la première signature, l'état des lieux est verrouillé
+   (« Annuler les signatures » pour le modifier).
+7. **PDF signé** : téléchargement direct, ou **envoi par e-mail** au bailleur et au locataire
+   (pièce jointe), si l'envoi d'e-mails est configuré (voir ci-dessous).
 
 ## Installation
 
@@ -55,6 +58,10 @@ Variables d'environnement optionnelles :
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `APP_PASSWORD` | — | Mot de passe d'accès (sans lui, aucune protection) |
+| `SMTP_HOST` | — | Serveur d'envoi d'e-mails (ex. `smtp.gmail.com`) |
+| `SMTP_PORT` | `587` | Port SMTP (465 = SSL) |
+| `SMTP_USER` / `SMTP_PASS` | — | Identifiants SMTP (Gmail : adresse + « mot de passe d'application ») |
+| `MAIL_FROM` | `SMTP_USER` | Expéditeur affiché |
 | `PORT` | `3000` | Port HTTP |
 | `DATA_DIR` | `./data` | Base SQLite et photos |
 | `CLAUDE_MODEL` | `claude-haiku-5-5` | Modèle d'analyse : le moins cher par défaut ; `claude-sonnet-5-5` ou `claude-opus-5-5` plus précis mais ~20 à 40× plus chers |

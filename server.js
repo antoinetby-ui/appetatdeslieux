@@ -8,6 +8,8 @@ import { all, get, run, transaction, PHOTOS_DIR } from './src/db.js';
 import { analyserPiece, ETATS, CATEGORIES } from './src/ia.js';
 import { genererPdf } from './src/pdf.js';
 import { routesAuth, authActive } from './src/auth.js';
+import { envoyerEdl, mailConfigure } from './src/mail.js';
+import { PassThrough } from 'node:stream';
 
 const app = express();
 app.set('trust proxy', 1); // derrière le proxy HTTPS de l'hébergeur
@@ -120,6 +122,25 @@ app.delete('/api/biens/:id', (req, res) => {
 });
 
 // --- États des lieux ---------------------------------------------------------
+const estSigne = (edlId) => {
+  const e = get('SELECT sig_bailleur, sig_locataire FROM etats_des_lieux WHERE id = ?', edlId);
+  return Boolean(e && (e.sig_bailleur || e.sig_locataire));
+};
+const edlDePiece = (id) => get('SELECT edl_id FROM edl_pieces WHERE id = ?', id)?.edl_id;
+const edlDeElement = (id) => get(
+  'SELECT p.edl_id FROM elements e JOIN edl_pieces p ON p.id = e.edl_piece_id WHERE e.id = ?', id)?.edl_id;
+const edlDePhoto = (id) => get(
+  'SELECT p.edl_id FROM photos ph JOIN edl_pieces p ON p.id = ph.edl_piece_id WHERE ph.id = ?', id)?.edl_id;
+
+// Refuse toute modification d'un état des lieux déjà signé (par l'une ou l'autre partie).
+const verrou = (edlDe) => (req, res, next) => {
+  if (estSigne(edlDe(req.params.id))) {
+    return res.status(409).json({ error: 'État des lieux signé : annulez les signatures pour le modifier.' });
+  }
+  next();
+};
+const verrouEdl = verrou((id) => id);
+const verrouPiece = verrou(edlDePiece);
 function edlComplet(id) {
   const edl = get('SELECT * FROM etats_des_lieux WHERE id = ?', id);
   if (!edl) return null;
@@ -170,7 +191,7 @@ app.get('/api/edl/:id', (req, res) => {
   edl ? res.json(edl) : res.status(404).json({ error: 'Introuvable' });
 });
 
-app.put('/api/edl/:id', (req, res) => {
+app.put('/api/edl/:id', verrouEdl, (req, res) => {
   const champs = ['type', 'date', 'statut', 'compteurs', 'cles', 'observations'].filter((c) => c in req.body);
   if (champs.length) {
     run(`UPDATE etats_des_lieux SET ${champs.map((c) => `${c} = ?`).join(',')} WHERE id = ?`,
@@ -186,19 +207,76 @@ app.delete('/api/edl/:id', (req, res) => {
   res.status(204).end();
 });
 
+const nomPdf = (edl) => `etat-des-lieux-${edl.type}-${edl.bien.nom}-${edl.date}${edl.sig_bailleur && edl.sig_locataire ? '-signe' : ''}`
+  .normalize('NFD').replace(/[^\w.-]+/g, '-');
+
+function pdfEnMemoire(edl) {
+  return new Promise((resolve, reject) => {
+    const flux = new PassThrough();
+    const morceaux = [];
+    flux.on('data', (m) => morceaux.push(m)).on('end', () => resolve(Buffer.concat(morceaux))).on('error', reject);
+    genererPdf(edl, flux);
+  });
+}
+
 app.get('/api/edl/:id/pdf', (req, res) => {
   const edl = edlComplet(req.params.id);
   if (!edl) return res.status(404).json({ error: 'Introuvable' });
-  const nom = `etat-des-lieux-${edl.type}-${edl.bien.nom}-${edl.date}`.normalize('NFD').replace(/[^\w.-]+/g, '-');
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${nom}.pdf"`);
+  res.setHeader('Content-Disposition', `${'telecharger' in req.query ? 'attachment' : 'inline'}; filename="${nomPdf(edl)}.pdf"`);
   genererPdf(edl, res);
+});
+
+// --- Signatures --------------------------------------------------------------
+const ROLES = { bailleur: 'sig_bailleur', locataire: 'sig_locataire' };
+
+app.post('/api/edl/:id/signatures', (req, res) => {
+  const { role, nom, image } = req.body ?? {};
+  const col = ROLES[role];
+  if (!col) return res.status(400).json({ error: 'Signataire inconnu' });
+  if (!nom?.trim()) return res.status(400).json({ error: 'Le nom du signataire est obligatoire' });
+  if (typeof image !== 'string' || !image.startsWith('data:image/png;base64,') || image.length > 800_000) {
+    return res.status(400).json({ error: 'Signature invalide' });
+  }
+  if (!get('SELECT id FROM etats_des_lieux WHERE id = ?', req.params.id)) return res.status(404).json({ error: 'Introuvable' });
+  run(`UPDATE etats_des_lieux SET ${col} = ?, ${col}_nom = ?, ${col}_le = datetime('now') WHERE id = ?`,
+    image, nom.trim(), req.params.id);
+  run(`UPDATE etats_des_lieux SET statut = 'signe'
+       WHERE id = ? AND sig_bailleur IS NOT NULL AND sig_locataire IS NOT NULL`, req.params.id);
+  res.json(edlComplet(req.params.id));
+});
+
+app.delete('/api/edl/:id/signatures', (req, res) => {
+  run(`UPDATE etats_des_lieux SET statut = 'brouillon',
+       sig_bailleur = NULL, sig_bailleur_nom = NULL, sig_bailleur_le = NULL,
+       sig_locataire = NULL, sig_locataire_nom = NULL, sig_locataire_le = NULL WHERE id = ?`, req.params.id);
+  res.json(edlComplet(req.params.id));
+});
+
+app.post('/api/edl/:id/envoyer', async (req, res) => {
+  const edl = edlComplet(req.params.id);
+  if (!edl) return res.status(404).json({ error: 'Introuvable' });
+  if (!mailConfigure) {
+    return res.status(503).json({ error: "L'envoi d'e-mails n'est pas configuré (variables SMTP_HOST, SMTP_USER, SMTP_PASS)." });
+  }
+  const destinataires = [...new Set((req.body?.destinataires ?? []).map((d) => String(d).trim()).filter(Boolean))];
+  if (!destinataires.length || destinataires.some((d) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d))) {
+    return res.status(400).json({ error: 'Adresse e-mail invalide' });
+  }
+  try {
+    await envoyerEdl({ edl, destinataires, pdf: await pdfEnMemoire(edl), nomFichier: `${nomPdf(edl)}.pdf` });
+    run("UPDATE etats_des_lieux SET envoye_le = datetime('now') WHERE id = ?", edl.id);
+    res.json(edlComplet(edl.id));
+  } catch (e) {
+    console.error('Envoi e-mail :', e);
+    res.status(502).json({ error: `Échec de l'envoi : ${e.message}` });
+  }
 });
 
 // --- Pièces d'un état des lieux ---------------------------------------------
 const pieceEdl = (id) => get('SELECT * FROM edl_pieces WHERE id = ?', id);
 
-app.post('/api/edl/:id/pieces', (req, res) => {
+app.post('/api/edl/:id/pieces', verrouEdl, (req, res) => {
   const { type, nom } = req.body;
   if (!type?.trim()) return res.status(400).json({ error: 'Type de pièce obligatoire' });
   const { m } = get('SELECT COALESCE(MAX(ordre), -1) + 1 AS m FROM edl_pieces WHERE edl_id = ?', req.params.id);
@@ -206,7 +284,7 @@ app.post('/api/edl/:id/pieces', (req, res) => {
   res.status(201).json(edlComplet(req.params.id));
 });
 
-app.put('/api/edl-pieces/:id', (req, res) => {
+app.put('/api/edl-pieces/:id', verrouPiece, (req, res) => {
   const champs = ['nom', 'etat_general', 'observations', 'resume_ia'].filter((c) => c in req.body);
   if (champs.length) {
     run(`UPDATE edl_pieces SET ${champs.map((c) => `${c} = ?`).join(',')} WHERE id = ?`,
@@ -215,7 +293,7 @@ app.put('/api/edl-pieces/:id', (req, res) => {
   res.json(pieceEdl(req.params.id));
 });
 
-app.delete('/api/edl-pieces/:id', (req, res) => {
+app.delete('/api/edl-pieces/:id', verrouPiece, (req, res) => {
   const fichiers = all('SELECT fichier FROM photos WHERE edl_piece_id = ?', req.params.id);
   run('DELETE FROM edl_pieces WHERE id = ?', req.params.id);
   for (const f of fichiers) fs.rm(path.join(PHOTOS_DIR, f.fichier), { force: true }, () => {});
@@ -223,7 +301,7 @@ app.delete('/api/edl-pieces/:id', (req, res) => {
 });
 
 // Photos : redimensionnées et converties en JPEG (compatibles IA et PDF, HEIC inclus si supporté).
-app.post('/api/edl-pieces/:id/photos', upload.array('photos'), async (req, res) => {
+app.post('/api/edl-pieces/:id/photos', verrouPiece, upload.array('photos'), async (req, res) => {
   if (!pieceEdl(req.params.id)) return res.status(404).json({ error: 'Pièce introuvable' });
   const erreurs = [];
   for (const f of req.files ?? []) {
@@ -242,7 +320,7 @@ app.post('/api/edl-pieces/:id/photos', upload.array('photos'), async (req, res) 
   });
 });
 
-app.delete('/api/photos/:id', (req, res) => {
+app.delete('/api/photos/:id', verrou(edlDePhoto), (req, res) => {
   const p = get('SELECT * FROM photos WHERE id = ?', req.params.id);
   if (p) {
     run('DELETE FROM photos WHERE id = ?', p.id);
@@ -252,7 +330,7 @@ app.delete('/api/photos/:id', (req, res) => {
 });
 
 // Analyse IA : remplace les éléments détectés précédemment, conserve les ajouts manuels.
-app.post('/api/edl-pieces/:id/analyser', async (req, res) => {
+app.post('/api/edl-pieces/:id/analyser', verrouPiece, async (req, res) => {
   const piece = pieceEdl(req.params.id);
   if (!piece) return res.status(404).json({ error: 'Pièce introuvable' });
   const edl = get('SELECT * FROM etats_des_lieux WHERE id = ?', piece.edl_id);
@@ -283,7 +361,7 @@ app.post('/api/edl-pieces/:id/analyser', async (req, res) => {
 // --- Éléments ----------------------------------------------------------------
 const CHAMPS_ELEMENT = ['categorie', 'nom', 'quantite', 'etat', 'commentaire'];
 
-app.post('/api/edl-pieces/:id/elements', (req, res) => {
+app.post('/api/edl-pieces/:id/elements', verrouPiece, (req, res) => {
   if (!req.body.nom?.trim()) return res.status(400).json({ error: 'Nom obligatoire' });
   const e = { categorie: 'mobilier', quantite: 1, ...req.body };
   const { lastInsertRowid } = run(
@@ -292,7 +370,7 @@ app.post('/api/edl-pieces/:id/elements', (req, res) => {
   res.status(201).json(get('SELECT * FROM elements WHERE id = ?', lastInsertRowid));
 });
 
-app.put('/api/elements/:id', (req, res) => {
+app.put('/api/elements/:id', verrou(edlDeElement), (req, res) => {
   const champs = CHAMPS_ELEMENT.filter((c) => c in req.body);
   // Un élément IA corrigé à la main devient manuel : il ne sera pas écrasé par une nouvelle analyse.
   if (champs.length) {
@@ -302,7 +380,7 @@ app.put('/api/elements/:id', (req, res) => {
   res.json(get('SELECT * FROM elements WHERE id = ?', req.params.id));
 });
 
-app.delete('/api/elements/:id', (req, res) => {
+app.delete('/api/elements/:id', verrou(edlDeElement), (req, res) => {
   run('DELETE FROM elements WHERE id = ?', req.params.id);
   res.status(204).end();
 });

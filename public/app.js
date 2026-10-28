@@ -7,6 +7,27 @@ const CATEGORIES = {
   plomberie: 'Plomberie', menuiserie: 'Menuiserie', autre: 'Autre',
 };
 
+// --- Icônes (trait fin, couleur héritée) --------------------------------------
+const ICONES = {
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  maison: '<path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/>',
+  nouveau: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14h6"/>',
+  edl: '<path d="M9 4h6v3H9z"/><path d="M15 5.5h2a2 2 0 0 1 2 2V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7.5a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4.5"/>',
+  biens: '<path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><path d="M9.5 21v-5h5v5"/><path d="M9.5 10.5h5"/>',
+  proprietaires: '<circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M16.5 6.5l2.5 2.5M14 9l2 2"/>',
+  locataires: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',
+  sortie: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/>',
+  signature: '<path d="M3 17c3-1 4.5-6 6.5-6S10 17 12 17s2.5-3 4-3 2 2 5 2"/><path d="M3 21h18"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/>',
+  telecharger: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/>',
+};
+function icone(nom) {
+  const span = document.createElement('span');
+  span.className = 'icone';
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${ICONES[nom]}</svg>`;
+  return span;
+}
+
 // --- Utilitaires -------------------------------------------------------------
 function h(tag, attrs = {}, ...enfants) {
   const el = document.createElement(tag);
@@ -46,6 +67,9 @@ function toast(msg, erreur = false) {
 
 const nomPersonne = (p) => [p.prenom, p.nom].filter(Boolean).join(' ') + (p.societe ? ` — ${p.societe}` : '');
 const dateFr = (d) => new Date(d).toLocaleDateString('fr-FR');
+// Horodatages SQLite en UTC (« AAAA-MM-JJ HH:MM:SS ») affichés à l'heure locale.
+const dateHeure = (d) => new Date(`${d.replace(' ', 'T')}Z`).toLocaleString('fr-FR',
+  { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const debounce = (fn, ms = 500) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 function champ(label, input) { return h('div', {}, h('label', {}, label), input); }
@@ -54,6 +78,39 @@ function modale(contenu) {
   const voile = h('div', { class: 'voile', onclick: (e) => e.target === voile && voile.remove() }, h('div', { class: 'modale' }, contenu));
   document.body.append(voile);
   return () => voile.remove();
+}
+
+// Zone de signature au doigt / à la souris, nette sur écrans haute densité.
+function padSignature() {
+  const canvas = h('canvas', { class: 'pad' });
+  const ctx = canvas.getContext('2d');
+  let traits = 0, dernier = null, milieuPrec = null;
+  const point = (e) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  canvas.addEventListener('pointerdown', (e) => { canvas.setPointerCapture(e.pointerId); dernier = point(e); traits++; ctx.beginPath(); ctx.arc(...dernier, 1.1, 0, 7); ctx.fill(); });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dernier) return;
+    const p = point(e);
+    const milieu = [(dernier[0] + p[0]) / 2, (dernier[1] + p[1]) / 2];
+    ctx.beginPath(); ctx.moveTo(...(milieuPrec ?? dernier)); ctx.quadraticCurveTo(...dernier, ...milieu); ctx.stroke();
+    milieuPrec = milieu; dernier = p;
+  });
+  const fin = () => { dernier = null; milieuPrec = null; };
+  canvas.addEventListener('pointerup', fin);
+  canvas.addEventListener('pointercancel', fin);
+  const preparer = () => {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+    ctx.scale(dpr, dpr);
+    Object.assign(ctx, { lineWidth: 2.2, lineCap: 'round', lineJoin: 'round', strokeStyle: '#2f2a24', fillStyle: '#2f2a24' });
+    traits = 0;
+  };
+  return {
+    element: h('div', { class: 'pad-cadre' }, canvas, h('span', { class: 'pad-ligne' }, 'Signez ici')),
+    dimensionner: () => requestAnimationFrame(preparer),
+    effacer: preparer,
+    vide: () => traits === 0,
+    image: () => canvas.toDataURL('image/png'),
+  };
 }
 
 function visionneuse(src) {
@@ -200,17 +257,41 @@ async function vueBien(id) {
 }
 
 // --- États des lieux ---------------------------------------------------------
+const STATUTS = { brouillon: ['Brouillon', ''], termine: ['Terminé', 'ok'], signe: ['Signé', 'ok'] };
+const badgeStatut = (statut) => { const [t, c] = STATUTS[statut] ?? STATUTS.brouillon; return h('span', { class: `badge ${c}` }, t); };
+
+const ligneEdl = (e) => h('a', { class: 'ligne lien', href: `#/edl/${e.id}` },
+  h('div', {}, h('div', { class: 'titre' }, `${e.type === 'sortie' ? 'Sortie' : 'Entrée'} — ${e.bien}`),
+    h('div', { class: 'sous' }, `${dateFr(e.date)} · ${e.proprietaire} → ${e.locataire}`)),
+  badgeStatut(e.statut));
+
 async function vueAccueil() {
+  const [edls, biens, proprietaires, locataires] = await Promise.all(
+    ['/edl', '/biens', '/proprietaires', '/locataires'].map((u) => api(u)));
+  const enCours = edls.filter((e) => e.statut !== 'signe').length;
+  const tuile = (href, nom, titre, detail) => h('a', { class: 'tuile', href }, icone(nom), h('span', { class: 'tuile-titre' }, titre),
+    detail && h('span', { class: 'tuile-detail' }, detail));
+  const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`;
+  $app.replaceChildren(h('div', { class: 'accueil' },
+    h('p', { class: 'surtitre' }, new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })),
+    h('h1', {}, 'Bienvenue'),
+    h('div', { class: 'tuiles' },
+      h('a', { class: 'tuile vedette', href: '#/edl/nouveau' }, icone('nouveau'),
+        h('span', { class: 'tuile-titre' }, 'Nouvel état des lieux'), h('span', { class: 'tuile-detail' }, 'Entrée ou sortie')),
+      tuile('#/edl', 'edl', 'États des lieux', enCours ? `${enCours} en cours` : pluriel(edls.length, 'document')),
+      tuile('#/biens', 'biens', 'Biens', pluriel(biens.length, 'bien')),
+      tuile('#/proprietaires', 'proprietaires', 'Propriétaires', pluriel(proprietaires.length, 'fiche')),
+      tuile('#/locataires', 'locataires', 'Locataires', pluriel(locataires.length, 'fiche'))),
+    edls.length > 0 && h('section', { class: 'recents' },
+      h('div', { class: 'entete' }, h('h2', {}, 'Récemment'), h('a', { class: 'lien-discret', href: '#/edl' }, 'Tout voir')),
+      h('div', { class: 'liste' }, edls.slice(0, 3).map(ligneEdl)))));
+}
+
+async function vueListeEdl() {
   const edls = await api('/edl');
   $app.replaceChildren(
     h('div', { class: 'entete' }, h('h1', {}, 'États des lieux'), h('a', { class: 'btn primaire', href: '#/edl/nouveau' }, '+ Nouvel état des lieux')),
-    edls.length ? h('div', { class: 'liste' }, edls.map((e) => h('div', { class: 'ligne' },
-      h('div', {}, h('div', { class: 'titre' }, `${e.type === 'sortie' ? 'Sortie' : 'Entrée'} — ${e.bien}`),
-        h('div', { class: 'sous' }, `${dateFr(e.date)} · Propriétaire : ${e.proprietaire} · Locataire : ${e.locataire}`)),
-      h('div', { class: 'actions' },
-        h('span', { class: `badge ${e.statut === 'termine' ? 'ok' : ''}` }, e.statut === 'termine' ? 'Terminé' : 'Brouillon'),
-        h('a', { class: 'btn petit', href: `#/edl/${e.id}` }, 'Ouvrir'),
-        h('a', { class: 'btn petit', href: `/api/edl/${e.id}/pdf`, target: '_blank' }, 'PDF')))))
+    edls.length ? h('div', { class: 'liste' }, edls.map(ligneEdl))
       : h('div', { class: 'vide' }, 'Aucun état des lieux. Commencez par créer un propriétaire, un locataire et un bien, puis un état des lieux.'));
 }
 
@@ -259,6 +340,8 @@ async function vueEdl(id) {
   const sauverEdl = debounce(async (champs) => { try { await api(`/edl/${id}`, { method: 'PUT', body: champs }); } catch (e) { toast(e.message, true); } });
 
   function rendre() {
+    const signe = Boolean(edl.sig_bailleur || edl.sig_locataire);
+    const complet = Boolean(edl.sig_bailleur && edl.sig_locataire);
     const typeAjout = h('select', {}, catalogue.typesPieces.map((t) => h('option', { value: t }, t)), h('option', { value: '__autre' }, 'Autre…'));
     const analysees = edl.pieces.filter((p) => p.analyse_at).length;
     $app.replaceChildren(
@@ -266,8 +349,19 @@ async function vueEdl(id) {
         h('div', {}, h('h1', {}, `État des lieux ${edl.type === 'sortie' ? 'de sortie' : "d'entrée"} — ${edl.bien.nom}`),
           h('div', { class: 'sous' }, `${dateFr(edl.date)} · ${nomPersonne(edl.proprietaire)} (propriétaire) · ${nomPersonne(edl.locataire)} (locataire)`)),
         h('div', { class: 'actions' },
-          h('a', { class: 'btn primaire', href: `/api/edl/${id}/pdf`, target: '_blank' }, 'Générer le PDF'),
-          h('a', { class: 'btn', href: '#/' }, '← Retour'))),
+          complet
+            ? h('a', { class: 'btn primaire', href: `/api/edl/${id}/pdf?telecharger` }, icone('telecharger'), 'PDF signé')
+            : h('a', { class: 'btn', href: `/api/edl/${id}/pdf`, target: '_blank' }, 'Aperçu PDF'),
+          h('a', { class: 'btn', href: '#/edl' }, '← Retour'))),
+
+      signe && h('div', { class: 'bandeau' },
+        h('span', {}, complet ? 'Signé par les deux parties — le document est verrouillé.' : 'Signature en cours — le document est verrouillé.'),
+        h('button', { class: 'petit', onclick: async () => {
+          if (!confirm('Annuler les signatures pour modifier l\'état des lieux ? Il faudra signer à nouveau.')) return;
+          try { edl = await api(`/edl/${id}/signatures`, { method: 'DELETE' }); rendre(); } catch (e) { toast(e.message, true); }
+        } }, 'Annuler les signatures')),
+
+      h('fieldset', { class: 'zone', disabled: signe },
 
       h('div', { class: 'carte' },
         h('div', { class: 'grille' },
@@ -275,7 +369,8 @@ async function vueEdl(id) {
             h('option', { value: 'entree', selected: edl.type === 'entree' }, 'Entrée'), h('option', { value: 'sortie', selected: edl.type === 'sortie' }, 'Sortie'))),
           champ('Date', h('input', { type: 'date', value: edl.date, onchange: (e) => sauverEdl({ date: e.target.value }) })),
           champ('Statut', h('select', { onchange: (e) => sauverEdl({ statut: e.target.value }) },
-            h('option', { value: 'brouillon', selected: edl.statut === 'brouillon' }, 'Brouillon'), h('option', { value: 'termine', selected: edl.statut === 'termine' }, 'Terminé')))),
+            h('option', { value: 'brouillon', selected: edl.statut === 'brouillon' }, 'Brouillon'), h('option', { value: 'termine', selected: edl.statut === 'termine' }, 'Terminé'),
+            edl.statut === 'signe' && h('option', { value: 'signe', selected: true }, 'Signé')))),
         h('div', { class: 'grille' },
           champ('Relevés de compteurs (eau, électricité, gaz)', h('textarea', { value: edl.compteurs ?? '', placeholder: 'ex. Électricité : 012345 kWh — Eau froide : 456 m³', oninput: (e) => sauverEdl({ compteurs: e.target.value }) })),
           champ('Clés remises', h('textarea', { value: edl.cles ?? '', placeholder: 'ex. 2 clés porte d\'entrée, 1 badge, 1 clé boîte aux lettres', oninput: (e) => sauverEdl({ cles: e.target.value }) })))),
@@ -292,8 +387,71 @@ async function vueEdl(id) {
         } }, '+ Ajouter'))),
 
       h('div', { class: 'carte' }, h('h2', {}, 'Observations générales'),
-        h('textarea', { value: edl.observations ?? '', oninput: (e) => sauverEdl({ observations: e.target.value }) })),
+        h('textarea', { value: edl.observations ?? '', oninput: (e) => sauverEdl({ observations: e.target.value }) }))),
+
+      carteSignatures(complet),
     );
+  }
+
+  function carteSignatures(complet) {
+    const bloc = (role, titre, personne) => {
+      const image = edl[`sig_${role}`];
+      return h('div', { class: 'signataire' },
+        h('div', { class: 'sous' }, titre),
+        image
+          ? [h('img', { src: image, alt: `Signature ${titre}` }),
+            h('div', { class: 'sous' }, `${edl[`sig_${role}_nom`]} — ${dateHeure(edl[`sig_${role}_le`])}`)]
+          : h('button', { class: 'zone-signer', onclick: () => signer(role, titre, nomPersonne(personne)) }, icone('signature'), 'Signer ici'));
+    };
+    return h('div', { class: 'carte' }, h('h2', {}, 'Signatures'),
+      h('p', { class: 'sous' }, 'Chaque partie relit le document puis signe au doigt sur l\'écran. Une fois signé, l\'état des lieux est verrouillé.'),
+      h('div', { class: 'signataires' },
+        bloc('bailleur', 'Le bailleur', edl.proprietaire),
+        bloc('locataire', 'Le locataire', edl.locataire)),
+      complet && h('div', { class: 'actions', style: 'margin-top:16px' },
+        h('a', { class: 'btn primaire', href: `/api/edl/${id}/pdf?telecharger` }, icone('telecharger'), 'Télécharger le PDF signé'),
+        h('button', { onclick: envoyerMail }, icone('mail'), 'Envoyer par e-mail'),
+        edl.envoye_le && h('span', { class: 'sous' }, `Dernier envoi : ${dateHeure(edl.envoye_le)}`)));
+  }
+
+  function signer(role, titre, nomDefaut) {
+    const nom = h('input', { value: nomDefaut, autocomplete: 'name' });
+    const lu = h('input', { type: 'checkbox' });
+    const pad = padSignature();
+    const fermer = modale(h('div', { class: 'signature-modale' },
+      h('h2', {}, `Signature — ${titre.toLowerCase()}`),
+      champ('Nom et prénom', nom),
+      h('label', { class: 'case' }, lu, 'Lu et approuvé : j\'ai relu l\'état des lieux et j\'en accepte le contenu.'),
+      pad.element,
+      h('div', { class: 'actions' },
+        h('button', { class: 'primaire', onclick: async (e) => {
+          if (!nom.value.trim()) return toast('Indiquez le nom du signataire.', true);
+          if (!lu.checked) return toast('Cochez « Lu et approuvé ».', true);
+          if (pad.vide()) return toast('Signez dans le cadre.', true);
+          await action(e.currentTarget, async () => {
+            edl = await api(`/edl/${id}/signatures`, { method: 'POST', body: { role, nom: nom.value.trim(), image: pad.image() } });
+            fermer(); toast('Signature enregistrée'); rendre();
+          });
+        } }, 'Valider la signature'),
+        h('button', { onclick: pad.effacer }, 'Effacer'),
+        h('button', { onclick: () => fermer() }, 'Annuler'))));
+    pad.dimensionner();
+  }
+
+  function envoyerMail() {
+    const dest = h('textarea', { rows: 3, value: [edl.proprietaire.email, edl.locataire.email].filter(Boolean).join('\n') });
+    const fermer = modale(h('div', {},
+      h('h2', {}, 'Envoyer le PDF signé'),
+      champ('Destinataires (une adresse par ligne)', dest),
+      h('div', { class: 'actions' },
+        h('button', { class: 'primaire', onclick: (e) => action(e.currentTarget, async () => {
+          const destinataires = dest.value.split(/[\s,;]+/).filter(Boolean);
+          if (!destinataires.length) throw new Error('Ajoutez au moins une adresse.');
+          edl = await api(`/edl/${id}/envoyer`, { method: 'POST', body: { destinataires } });
+          fermer(); toast('E-mail envoyé'); rendre();
+        }, 'Envoi…') }, icone('mail'), 'Envoyer'),
+        h('button', { onclick: () => fermer() }, 'Annuler'))));
+    dest.focus();
   }
 
   function rendrePiece(piece) {
@@ -400,7 +558,7 @@ async function vueEdl(id) {
 
 // --- Connexion ---------------------------------------------------------------
 function vueConnexion() {
-  document.querySelector('.topbar nav').hidden = true;
+  document.body.dataset.vue = 'connexion';
   const mdp = h('input', { type: 'password', autocomplete: 'current-password', required: true });
   $app.replaceChildren(h('form', { class: 'carte connexion', onsubmit: async (e) => {
     e.preventDefault();
@@ -413,21 +571,49 @@ function vueConnexion() {
 }
 
 // --- Routage -----------------------------------------------------------------
+// --- Navigation : accueil à tuiles, puis ☰ + 🏠 dans les sous-pages ----------
+const LIENS = [
+  ['#/', 'maison', 'Accueil'], ['#/edl/nouveau', 'nouveau', 'Nouvel état des lieux'], ['#/edl', 'edl', 'États des lieux'],
+  ['#/biens', 'biens', 'Biens'], ['#/proprietaires', 'proprietaires', 'Propriétaires'], ['#/locataires', 'locataires', 'Locataires'],
+];
+let authActive = false;
+const $tiroir = document.getElementById('tiroir');
+
+function ouvrirTiroir() {
+  // Lien actif : le plus spécifique qui correspond à la page courante.
+  const actuel = location.hash || '#/';
+  const actif = LIENS.map(([l]) => l)
+    .filter((l) => (l === '#/' ? actuel === '#/' : actuel === l || /^[/?]/.test(actuel.slice(l.length)) && actuel.startsWith(l)))
+    .sort((a, b) => b.length - a.length)[0];
+  $tiroir.querySelector('nav').replaceChildren(
+    ...LIENS.map(([href, ic, texte]) => h('a', { href, class: href === actif ? 'actif' : '', onclick: fermerTiroir }, icone(ic), texte)),
+    ...(authActive ? [h('a', { href: '#', class: 'deconnexion', onclick: async (e) => {
+      e.preventDefault(); fermerTiroir(); await api('/logout', { method: 'POST' }); vueConnexion();
+    } }, icone('sortie'), 'Déconnexion')] : []));
+  $tiroir.hidden = false;
+  requestAnimationFrame(() => $tiroir.classList.add('ouvert'));
+}
+function fermerTiroir() {
+  $tiroir.classList.remove('ouvert');
+  setTimeout(() => { if (!$tiroir.classList.contains('ouvert')) $tiroir.hidden = true; }, 300);
+}
+document.querySelector('.menu-btn').addEventListener('click', ouvrirTiroir);
+$tiroir.querySelector('.tiroir-voile').addEventListener('click', fermerTiroir);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && fermerTiroir());
+
 async function router() {
   const [chemin, qs] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(qs);
   const seg = chemin.split('/').filter(Boolean);
-  document.querySelectorAll('.topbar nav a:not(.deconnexion)').forEach((a) => {
-    const cible = a.getAttribute('href').slice(2);
-    a.classList.toggle('actif', cible ? seg[0] === cible : !seg[0] || seg[0] === 'edl');
-  });
+  document.body.dataset.vue = seg.length ? 'page' : 'accueil';
   try {
     if (!seg.length) await vueAccueil();
     else if (seg[0] === 'proprietaires' || seg[0] === 'locataires') await vuePersonnes(seg[0]);
     else if (seg[0] === 'biens' && seg[1]) await vueBien(seg[1]);
     else if (seg[0] === 'biens') await vueBiens();
     else if (seg[0] === 'edl' && seg[1] === 'nouveau') await vueNouvelEdl(params);
-    else if (seg[0] === 'edl') await vueEdl(seg[1]);
+    else if (seg[0] === 'edl' && seg[1]) await vueEdl(seg[1]);
+    else if (seg[0] === 'edl') await vueListeEdl();
     else location.hash = '#/';
   } catch (e) {
     if (!e.deconnecte) $app.replaceChildren(h('div', { class: 'vide' }, `Erreur : ${e.message}`));
@@ -437,14 +623,8 @@ async function router() {
 
 async function demarrer() {
   const session = await api('/session');
+  authActive = session.authActive;
   if (!session.connecte) return vueConnexion();
-  const nav = document.querySelector('.topbar nav');
-  nav.hidden = false;
-  if (session.authActive && !nav.querySelector('.deconnexion')) {
-    nav.append(h('a', { href: '#', class: 'deconnexion', onclick: async (e) => {
-      e.preventDefault(); await api('/logout', { method: 'POST' }); vueConnexion();
-    } }, 'Déconnexion'));
-  }
   catalogue = await api('/catalogue');
   router();
 }

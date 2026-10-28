@@ -73,6 +73,19 @@ CREATE TABLE IF NOT EXISTS photos (
 );
 `);
 
+// Colonnes ajoutées après la première version : créées si absentes (bases existantes).
+function ajouterColonnes(table, colonnes) {
+  const existantes = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+  for (const [nom, type] of Object.entries(colonnes)) {
+    if (!existantes.includes(nom)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${nom} ${type}`);
+  }
+}
+ajouterColonnes('etats_des_lieux', {
+  sig_bailleur: 'TEXT', sig_bailleur_nom: 'TEXT', sig_bailleur_le: 'TEXT',
+  sig_locataire: 'TEXT', sig_locataire_nom: 'TEXT', sig_locataire_le: 'TEXT',
+  envoye_le: 'TEXT',
+});
+
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
 export const get = (sql, ...p) => db.prepare(sql).get(...p);
 export const run = (sql, ...p) => db.prepare(sql).run(...p);

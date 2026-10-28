@@ -14,6 +14,9 @@ const CATEGORIE_LIBELLE = {
 };
 
 const nomComplet = (p) => [p.civilite, p.prenom, p.nom].filter(Boolean).join(' ') + (p.societe ? ` (${p.societe})` : '');
+// Les horodatages SQLite sont en UTC (« AAAA-MM-JJ HH:MM:SS »).
+const dateHeure = (d) => new Date(`${d.replace(' ', 'T')}Z`).toLocaleString('fr-FR',
+  { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const dateFr = (d) => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
 /** Génère le PDF de l'état des lieux et l'écrit dans le flux `out`. */
@@ -37,6 +40,9 @@ export function genererPdf(edl, out) {
   // En-tête
   doc.font('Times-Bold').fontSize(22).fillColor(TAUPE)
     .text(`ÉTAT DES LIEUX ${edl.type === 'sortie' ? 'DE SORTIE' : "D'ENTRÉE"}`, { align: 'center' });
+  if (edl.sig_bailleur && edl.sig_locataire) {
+    doc.font('Helvetica').fontSize(9).fillColor(TAUPE).text('DOCUMENT SIGNÉ PAR LES DEUX PARTIES', { align: 'center', characterSpacing: 1.5 });
+  }
   doc.font('Helvetica').fontSize(11).fillColor(GRIS).text(`Établi le ${dateFr(edl.date)}`, { align: 'center' });
   doc.fillColor('black');
 
@@ -92,13 +98,23 @@ export function genererPdf(edl, out) {
   titre('Signatures');
   doc.text(`Fait en deux exemplaires, le ${dateFr(edl.date)}.`).moveDown(0.5);
   const ys = doc.y;
-  for (const [i, label] of ['Le bailleur', 'Le locataire'].entries()) {
+  const signataires = [
+    ['Le bailleur', edl.sig_bailleur, edl.sig_bailleur_nom, edl.sig_bailleur_le],
+    ['Le locataire', edl.sig_locataire, edl.sig_locataire_nom, edl.sig_locataire_le],
+  ];
+  for (const [i, [label, image, nom, le]] of signataires.entries()) {
     const x = 40 + i * (col + 20);
-    doc.font('Helvetica-Bold').text(label, x, ys, { width: col });
+    doc.font('Helvetica-Bold').fontSize(10).fillColor('black').text(label, x, ys, { width: col });
     doc.font('Helvetica').fontSize(8).fillColor(GRIS).text('« Lu et approuvé », signature', x, doc.y, { width: col });
-    doc.rect(x, doc.y + 4, col, 80).strokeColor(LIGNE).stroke();
-    doc.fontSize(10).fillColor('black');
+    const yb = doc.y + 4;
+    doc.rect(x, yb, col, 80).strokeColor(LIGNE).stroke();
+    if (image) {
+      doc.image(Buffer.from(image.split(',')[1], 'base64'), x + 6, yb + 4, { fit: [col - 12, 72], align: 'center', valign: 'center' });
+      doc.font('Helvetica').fontSize(8).fillColor(GRIS)
+        .text(`Lu et approuvé — signé électroniquement par ${nom}, le ${dateHeure(le)}`, x, yb + 86, { width: col });
+    }
   }
+  doc.fontSize(10).fillColor('black');
 
   // Pagination
   const range = doc.bufferedPageRange();

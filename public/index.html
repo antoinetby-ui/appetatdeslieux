@@ -13,12 +13,35 @@
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-    <symbol id="cle" viewBox="0 0 210 36">
-      <circle cx="20" cy="18" r="14" fill="none" stroke="currentColor" stroke-width="4.5"/>
-      <circle cx="20" cy="18" r="5" fill="none" stroke="currentColor" stroke-width="2"/>
-      <rect x="33" y="15" width="172" height="6" rx="2" fill="currentColor"/>
-      <rect x="44" y="11" width="4" height="14" rx="1" fill="currentColor"/>
-      <path d="M170 21h6v8h-6zM181 21h5v11h-5zM191 21h6v7h-6z" fill="currentColor"/>
+    <!-- Clé en laiton : dégradés pour le volume, reflets et ombre portée -->
+    <defs>
+      <linearGradient id="laiton" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#f6e7c4"/><stop offset=".28" stop-color="#d9bb83"/>
+        <stop offset=".55" stop-color="#ad8650"/><stop offset=".8" stop-color="#7d5c32"/><stop offset="1" stop-color="#5c4224"/>
+      </linearGradient>
+      <radialGradient id="laiton-anneau" cx=".35" cy=".3" r=".8">
+        <stop offset="0" stop-color="#fbefd2"/><stop offset=".35" stop-color="#d4b277"/>
+        <stop offset=".75" stop-color="#94703e"/><stop offset="1" stop-color="#5c4224"/>
+      </radialGradient>
+      <filter id="ombre-cle" x="-10%" y="-30%" width="120%" height="170%">
+        <feDropShadow dx="0" dy="3" stdDeviation="2.2" flood-color="#3b2a14" flood-opacity=".35"/>
+      </filter>
+    </defs>
+    <symbol id="cle" viewBox="0 0 220 60">
+      <g filter="url(#ombre-cle)">
+        <!-- Anneau -->
+        <path fill="url(#laiton-anneau)" fill-rule="evenodd" d="M6 30a22 22 0 1 0 44 0a22 22 0 1 0-44 0zM17.5 30a10.5 10.5 0 1 0 21 0a10.5 10.5 0 1 0-21 0z"/>
+        <circle cx="28" cy="30" r="10.5" fill="none" stroke="#5c4224" stroke-opacity=".55" stroke-width="1.2"/>
+        <path d="M11 22a19 19 0 0 1 15-10" fill="none" stroke="#fff8e6" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>
+        <!-- Collerette -->
+        <rect x="48" y="23" width="9" height="14" rx="2.5" fill="url(#laiton)"/>
+        <rect x="59" y="25" width="5" height="10" rx="2" fill="url(#laiton)"/>
+        <!-- Tige -->
+        <rect x="62" y="26.5" width="150" height="7" rx="3.5" fill="url(#laiton)"/>
+        <rect x="64" y="27.6" width="144" height="1.4" rx=".7" fill="#fff8e6" fill-opacity=".55"/>
+        <!-- Panneton -->
+        <path fill="url(#laiton)" d="M176 33h30v5.5h-4.5v7h-6v-4h-5v6.5h-6v-5h-8.5z"/>
+      </g>
     </symbol>
   </svg>
 
@@ -30,24 +53,31 @@
       <div class="filet"></div>
       <div class="devise">États des lieux</div>
       <div class="serrure">
-        <svg class="cle" viewBox="0 0 210 36"><use href="#cle"/></svg>
+        <svg class="cle" viewBox="0 0 220 60"><use href="#cle"/></svg>
         <div class="plaque"></div>
       </div>
     </div>
   </div>
 
   <header class="topbar">
+    <button class="icone-btn menu-btn" aria-label="Menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
     <a href="#/" class="logo">
-      <svg viewBox="0 0 210 36"><use href="#cle"/></svg>
+      <svg viewBox="0 0 220 60"><use href="#cle"/></svg>
       <span><span class="marque">Bremakeys</span><span class="sous-marque">États des lieux</span></span>
     </a>
-    <nav>
-      <a href="#/">États des lieux</a>
-      <a href="#/biens">Biens</a>
-      <a href="#/proprietaires">Propriétaires</a>
-      <a href="#/locataires">Locataires</a>
-    </nav>
+    <a href="#/" class="icone-btn accueil-btn" aria-label="Accueil">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11 12 4l8.5 7"/><path d="M5.5 9.5V20h13V9.5"/><path d="M10 20v-5.5h4V20"/></svg>
+    </a>
   </header>
+  <div id="tiroir" hidden>
+    <div class="tiroir-voile"></div>
+    <aside class="tiroir">
+      <div class="tiroir-marque">Bremakeys</div>
+      <nav></nav>
+    </aside>
+  </div>
   <main id="app"></main>
   <div id="toast" class="toast" hidden></div>
   <script type="module" src="app.js"></script>

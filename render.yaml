@@ -18,6 +18,15 @@ services:
         sync: false # demandé lors de la création
       - key: SESSION_SECRET
         generateValue: true
+      # Envoi des PDF par e-mail (ex. Gmail : smtp.gmail.com + mot de passe d'application)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
     disk:
       name: donnees
       mountPath: /var/data
