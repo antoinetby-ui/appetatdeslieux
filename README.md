@@ -57,7 +57,9 @@ Variables d'environnement optionnelles :
 | `APP_PASSWORD` | — | Mot de passe d'accès (sans lui, aucune protection) |
 | `PORT` | `3000` | Port HTTP |
 | `DATA_DIR` | `./data` | Base SQLite et photos |
-| `CLAUDE_MODEL` | `claude-opus-5-5` | Modèle utilisé pour l'analyse |
+| `CLAUDE_MODEL` | `claude-opus-5-5` | Modèle d'analyse : `claude-sonnet-5-5` (2× moins cher), `claude-haiku-5-5` (~40× moins cher) |
+| `CLAUDE_EFFORT` | `medium` | Profondeur de réflexion : `low` est moins cher, `high` plus précis |
+| `IA_IMAGE_MAX` | `1024` | Taille max (px) des photos envoyées à l'IA ; le PDF garde les photos complètes |
 
 ## Technique
 

@@ -1,9 +1,17 @@
 import Anthropic from '@anthropic-ai/sdk';
-import fs from 'node:fs';
+import sharp from 'sharp';
 import path from 'node:path';
 import { PHOTOS_DIR } from './db.js';
 
+// Réglages de coût (modifiables dans les variables d'environnement, sans toucher au code) :
+// - CLAUDE_MODEL : modèle utilisé ; claude-sonnet-5-5 coûte 2× moins, claude-haiku-5-5 ~40× moins.
+// - CLAUDE_EFFORT : profondeur de réflexion (low | medium | high) ; low réduit la réponse facturée.
+// - IA_IMAGE_MAX : taille des photos envoyées à l'IA, en pixels ; le PDF garde les photos d'origine.
 const MODEL = process.env.CLAUDE_MODEL || 'claude-opus-5-5';
+const EFFORT = process.env.CLAUDE_EFFORT || 'medium';
+const IMAGE_MAX = Number(process.env.IA_IMAGE_MAX) || 1024;
+// Repli automatique en cas de refus du modèle : pris en charge par Opus 5.x, Sonnet 5.5 et Fable.
+const FALLBACK = /^claude-(opus-5|sonnet-5-5|fable-5)/.test(MODEL);
 
 export const ETATS = ['Neuf', 'Très bon état', 'Bon état', 'État d\'usage', 'Mauvais état', 'Hors service'];
 export const CATEGORIES = ['revetement', 'mobilier', 'equipement', 'electricite', 'plomberie', 'menuiserie', 'autre'];
@@ -52,8 +60,10 @@ Règles :
 - Si un état est difficile à juger sur photo, choisis l'état le plus probable et précise-le dans le commentaire.
 - Rédige en français, de façon factuelle et concise, comme dans un état des lieux officiel.`;
 
-function photoBlock(fichier) {
-  const data = fs.readFileSync(path.join(PHOTOS_DIR, fichier)).toString('base64');
+async function photoBlock(fichier) {
+  const data = (await sharp(path.join(PHOTOS_DIR, fichier))
+    .resize(IMAGE_MAX, IMAGE_MAX, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 80 }).toBuffer()).toString('base64');
   return { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } };
 }
 
@@ -81,10 +91,9 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
+    ...(FALLBACK && { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }),
     output_config: {
-      effort: 'medium',
+      effort: EFFORT,
       format: { type: 'json_schema', schema: SCHEMA },
     },
     system: SYSTEM,
@@ -92,7 +101,7 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
       role: 'user',
       content: [
         { type: 'text', text: contexte },
-        ...photos.map((p) => photoBlock(p.fichier)),
+        ...(await Promise.all(photos.map((p) => photoBlock(p.fichier)))),
         { type: 'text', text: 'Établis l\'inventaire et l\'état de cette pièce.' },
       ],
     }],
