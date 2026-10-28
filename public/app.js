@@ -597,6 +597,17 @@ function fermerTiroir() {
   $tiroir.classList.remove('ouvert');
   setTimeout(() => { if (!$tiroir.classList.contains('ouvert')) $tiroir.hidden = true; }, 300);
 }
+// La barre du haut se retire quand on descend et revient dès qu'on remonte.
+const $topbar = document.querySelector('.topbar');
+let dernierScroll = 0;
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  if (Math.abs(y - dernierScroll) < 6) return; // ignore les micro-mouvements
+  $topbar.classList.toggle('cachee', y > dernierScroll && y > 80);
+  $topbar.classList.toggle('flottante', y > 10);
+  dernierScroll = y;
+}, { passive: true });
+
 document.querySelector('.menu-btn').addEventListener('click', ouvrirTiroir);
 $tiroir.querySelector('.tiroir-voile').addEventListener('click', fermerTiroir);
 document.addEventListener('keydown', (e) => e.key === 'Escape' && fermerTiroir());

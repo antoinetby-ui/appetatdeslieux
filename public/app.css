@@ -17,7 +17,11 @@ a { color: var(--taupe-fonce); }
 
 /* En-tête : marque au centre ; ☰ à gauche et maison à droite dans les sous-pages */
 .topbar { background: var(--ivoire); border-bottom: 1px solid var(--bord); padding: 10px 14px; display: grid;
-  grid-template-columns: 44px 1fr 44px; align-items: center; position: sticky; top: 0; z-index: 10; }
+  grid-template-columns: 44px 1fr 44px; align-items: center; position: sticky; top: 0; z-index: 10;
+  transition: transform .35s cubic-bezier(.3, .7, .2, 1), box-shadow .35s; }
+/* Se retire en descendant, revient dès qu'on remonte */
+.topbar.cachee { transform: translateY(-100%); }
+.topbar.flottante { box-shadow: 0 6px 20px rgba(60, 45, 30, .08); }
 .logo { justify-self: center; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--encre); }
 .logo svg { width: 64px; height: 18px; }
 .logo .marque { font-family: var(--serif); font-weight: 600; font-size: 1.35rem; letter-spacing: .28em; text-transform: uppercase; }
