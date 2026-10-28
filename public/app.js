@@ -19,6 +19,9 @@ const ICONES = {
   sortie: '<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 16l-4-4 4-4M6 12h10"/>',
   signature: '<path d="M3 17c3-1 4.5-6 6.5-6S10 17 12 17s2.5-3 4-3 2 2 5 2"/><path d="M3 21h18"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/>',
+  photo: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
+  galerie: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4"/>',
+  chevron: '<path d="m9 6 6 6-6 6"/>',
   telecharger: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/>',
 };
 function icone(nom) {
@@ -275,7 +278,12 @@ async function vueBien(id) {
       h('div', { class: 'puces' }, catalogue.typesPieces.map((t) => h('button', { type: 'button', class: 'puce', onclick: () => ajouter(t) }, `+ ${t}`))),
       h('div', { class: 'actions', style: 'margin-bottom:12px' }, autre, h('button', { type: 'button', onclick: ajouterAutre }, 'Ajouter')),
       $liste),
-    h('button', { class: 'primaire', type: 'submit' }, 'Enregistrer le bien')));
+    h('button', { class: 'primaire', type: 'submit' }, 'Enregistrer le bien')),
+    bien.id && h('div', { class: 'carte rappel-photos' },
+      icone('photo'),
+      h('div', {}, h('strong', {}, 'Les photos se prennent dans l\'état des lieux'),
+        h('p', { class: 'sous' }, 'La fiche du bien décrit les pièces. Les photos et l\'analyse IA se font pièce par pièce, dans un état des lieux.')),
+      h('a', { class: 'btn primaire', href: `#/edl/nouveau?bien=${bien.id}` }, 'Créer un état des lieux')));
   autre.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ajouterAutre(); } });
 }
 
@@ -359,6 +367,9 @@ async function vueNouvelEdl(params) {
 async function vueEdl(id) {
   let edl = await api(`/edl/${id}`);
   const ouvertes = new Set();
+  // Pour guider : la première pièce sans photo est ouverte d'office
+  const aPhotographier = !edl.sig_bailleur && !edl.sig_locataire && edl.pieces.find((p) => !p.photos.length);
+  if (aPhotographier) ouvertes.add(aPhotographier.id);
 
   const sauverEdl = debounce(async (champs) => { try { await api(`/edl/${id}`, { method: 'PUT', body: champs }); } catch (e) { toast(e.message, true); } });
 
@@ -480,6 +491,7 @@ async function vueEdl(id) {
   }
 
   function rendrePiece(piece) {
+    const verrouille = Boolean(edl.sig_bailleur || edl.sig_locataire);
     const sauverPiece = debounce((champs) => api(`/edl-pieces/${piece.id}`, { method: 'PUT', body: champs }).catch((e) => toast(e.message, true)));
     // Envoi une par une, après conversion sur le téléphone (JPEG 1600 px) : rapide en 4G et
     // compatible avec les photos HEIC de l'iPhone, que le serveur ne sait pas lire.
@@ -517,21 +529,28 @@ async function vueEdl(id) {
 
     const details = h('details', { class: 'piece', open: ouvertes.has(piece.id), ontoggle: (e) => (e.target.open ? ouvertes.add(piece.id) : ouvertes.delete(piece.id)) },
       h('summary', {},
-        h('span', { class: 'nom' }, piece.nom),
+        h('span', { class: 'nom-bloc' },
+          h('span', { class: 'nom' }, piece.nom),
+          h('span', { class: 'indice' }, piece.photos.length
+            ? `${piece.photos.length} photo${piece.photos.length > 1 ? 's' : ''} · ${piece.elements.length} élément${piece.elements.length > 1 ? 's' : ''}`
+            : 'Touchez pour ajouter des photos')),
         h('span', { class: 'actions' },
-          h('span', { class: 'badge' }, `${piece.photos.length} photo${piece.photos.length > 1 ? 's' : ''}`),
-          h('span', { class: 'badge' }, `${piece.elements.length} élément(s)`),
-          piece.etat_general && h('span', { class: `badge ${piece.analyse_at ? 'ia' : 'ok'}` }, piece.etat_general))),
+          !piece.photos.length && !verrouille && h('span', { class: 'badge invite' }, icone('photo'), 'Photos'),
+          piece.etat_general && h('span', { class: `badge ${piece.analyse_at ? 'ia' : 'ok'}` }, piece.etat_general),
+          h('span', { class: 'chevron' }, icone('chevron')))),
       h('div', { class: 'corps' },
-        h('div', { class: 'photos' },
+        verrouille
+          ? h('p', { class: 'sous note-verrou' }, 'Document signé : touchez « Annuler les signatures » en haut de la page pour ajouter ou retirer des photos.')
+          : h('div', { class: 'boutons-photo' },
+            h('label', { class: 'btn primaire ajout-photo' }, camera, icone('photo'), 'Prendre une photo'),
+            h('label', { class: 'btn ajout-photo' }, fichiers, icone('galerie'), 'Importer de la galerie')),
+        piece.photos.length > 0 && h('div', { class: 'photos' },
           piece.photos.map((p) => h('div', { class: 'photo' },
             h('img', { src: `/photos/${p.fichier}`, loading: 'lazy', onclick: () => visionneuse(`/photos/${p.fichier}`) }),
             h('button', { title: 'Supprimer', onclick: async () => {
               if (!confirm('Supprimer cette photo ?')) return;
               await api(`/photos/${p.id}`, { method: 'DELETE' }); piece.photos = piece.photos.filter((x) => x.id !== p.id); rendre();
-            } }, '✕'))),
-          h('label', { class: 'ajout-photo' }, camera, h('b', {}, '+'), 'Prendre une photo'),
-          h('label', { class: 'ajout-photo' }, fichiers, h('b', {}, '↑'), 'Importer des photos')),
+            } }, '✕')))),
         h('div', { class: 'actions' }, btnIa,
           h('button', { class: 'petit danger', onclick: async () => {
             if (!confirm(`Retirer « ${piece.nom} » de cet état des lieux ?`)) return;
