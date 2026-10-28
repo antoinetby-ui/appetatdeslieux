@@ -95,3 +95,5 @@ textarea { min-height: 70px; resize: vertical; }
   .tableau td { border: none; padding: 0; }
   .tableau td.large { grid-column: 1 / -1; }
 }
+.connexion { max-width: 380px; margin: 60px auto; display: grid; gap: 14px; }
+[hidden] { display: none !important; }

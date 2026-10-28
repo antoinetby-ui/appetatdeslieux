@@ -7,10 +7,14 @@ import path from 'node:path';
 import { all, get, run, transaction, PHOTOS_DIR } from './src/db.js';
 import { analyserPiece, ETATS, CATEGORIES } from './src/ia.js';
 import { genererPdf } from './src/pdf.js';
+import { routesAuth, authActive } from './src/auth.js';
 
 const app = express();
+app.set('trust proxy', 1); // derrière le proxy HTTPS de l'hébergeur
 app.use(express.json({ limit: '1mb' }));
+app.get('/healthz', (req, res) => res.send('ok'));
 app.use(express.static('public'));
+routesAuth(app);
 app.use('/photos', express.static(PHOTOS_DIR, { maxAge: '7d' }));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024, files: 20 } });
@@ -311,5 +315,6 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`État des lieux IA — http://localhost:${PORT}`);
+  if (!authActive) console.warn('⚠ APP_PASSWORD non défini : application accessible sans mot de passe.');
   if (!process.env.ANTHROPIC_API_KEY) console.warn('⚠ ANTHROPIC_API_KEY non définie : l\'analyse des photos ne fonctionnera pas.');
 });

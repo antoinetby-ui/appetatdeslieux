@@ -1,0 +1,24 @@
+# Déploiement sur Render (https://render.com) : New + → Blueprint → choisir ce dépôt.
+services:
+  - type: web
+    name: etat-des-lieux
+    runtime: node
+    plan: starter # le disque persistant n'est pas disponible avec l'offre gratuite
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATA_DIR
+        value: /var/data
+      - key: APP_PASSWORD
+        sync: false # demandé lors de la création
+      - key: ANTHROPIC_API_KEY
+        sync: false # demandé lors de la création
+      - key: SESSION_SECRET
+        generateValue: true
+    disk:
+      name: donnees
+      mountPath: /var/data
+      sizeGB: 1

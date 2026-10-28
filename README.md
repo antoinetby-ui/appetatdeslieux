@@ -35,10 +35,26 @@ npm start
 Puis ouvrir <http://localhost:3000>. Pour l'utiliser depuis un téléphone sur le même réseau
 Wi-Fi : `http://<ip-de-l-ordinateur>:3000`.
 
+## Mise en ligne (Render)
+
+Le fichier `render.yaml` décrit tout le déploiement :
+
+1. Créez un compte sur <https://render.com> et connectez votre compte GitHub.
+2. **New +** → **Blueprint** → choisissez le dépôt `appetatdeslieux` (et la branche contenant ce code).
+3. Render demande deux valeurs :
+   - `APP_PASSWORD` : le mot de passe pour accéder à l'application (choisissez-en un long) ;
+   - `ANTHROPIC_API_KEY` : votre clé API Anthropic.
+4. Validez. Après quelques minutes l'application est disponible sur `https://etat-des-lieux-xxxx.onrender.com`.
+
+La base et les photos sont stockées sur un disque persistant (`/var/data`), qui nécessite l'offre
+payante « Starter » de Render (environ 7 $/mois + 0,25 $/Go de disque). Sans ce disque, toutes les
+données seraient effacées à chaque redémarrage. Chaque nouveau commit sur la branche redéploie l'application.
+
 Variables d'environnement optionnelles :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
+| `APP_PASSWORD` | — | Mot de passe d'accès (sans lui, aucune protection) |
 | `PORT` | `3000` | Port HTTP |
 | `DATA_DIR` | `./data` | Base SQLite et photos |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Modèle utilisé pour l'analyse |
@@ -52,4 +68,4 @@ Variables d'environnement optionnelles :
 - PDF (`src/pdf.js`) généré avec `pdfkit`.
 - Interface (`public/`) : HTML/CSS/JS sans framework, adaptée au mobile.
 
-> ⚠️ Pas d'authentification : à utiliser en local ou derrière un accès protégé.
+> ⚠️ Définissez toujours `APP_PASSWORD` dès que l'application est accessible depuis Internet.

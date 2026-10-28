@@ -26,6 +26,10 @@ async function api(url, { method = 'GET', body } = {}) {
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
   const r = await fetch(`/api${url}`, opts);
+  if (r.status === 401 && url !== '/login') {
+    vueConnexion();
+    throw Object.assign(new Error('Session expirée, reconnectez-vous.'), { deconnecte: true });
+  }
   if (r.status === 204) return null;
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error || `Erreur ${r.status}`);
@@ -394,12 +398,26 @@ async function vueEdl(id) {
   rendre();
 }
 
+// --- Connexion ---------------------------------------------------------------
+function vueConnexion() {
+  document.querySelector('.topbar nav').hidden = true;
+  const mdp = h('input', { type: 'password', autocomplete: 'current-password', required: true });
+  $app.replaceChildren(h('form', { class: 'carte connexion', onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      await api('/login', { method: 'POST', body: { password: mdp.value } });
+      await demarrer();
+    } catch (err) { toast(err.message, true); mdp.select(); }
+  } }, h('h1', {}, 'Connexion'), champ('Mot de passe', mdp), h('button', { class: 'primaire', type: 'submit' }, 'Se connecter')));
+  mdp.focus();
+}
+
 // --- Routage -----------------------------------------------------------------
 async function router() {
   const [chemin, qs] = (location.hash.slice(1) || '/').split('?');
   const params = new URLSearchParams(qs);
   const seg = chemin.split('/').filter(Boolean);
-  document.querySelectorAll('.topbar nav a').forEach((a) => {
+  document.querySelectorAll('.topbar nav a:not(.deconnexion)').forEach((a) => {
     const cible = a.getAttribute('href').slice(2);
     a.classList.toggle('actif', cible ? seg[0] === cible : !seg[0] || seg[0] === 'edl');
   });
@@ -412,11 +430,24 @@ async function router() {
     else if (seg[0] === 'edl') await vueEdl(seg[1]);
     else location.hash = '#/';
   } catch (e) {
-    $app.replaceChildren(h('div', { class: 'vide' }, `Erreur : ${e.message}`));
+    if (!e.deconnecte) $app.replaceChildren(h('div', { class: 'vide' }, `Erreur : ${e.message}`));
   }
   window.scrollTo(0, 0);
 }
 
-catalogue = await api('/catalogue');
+async function demarrer() {
+  const session = await api('/session');
+  if (!session.connecte) return vueConnexion();
+  const nav = document.querySelector('.topbar nav');
+  nav.hidden = false;
+  if (session.authActive && !nav.querySelector('.deconnexion')) {
+    nav.append(h('a', { href: '#', class: 'deconnexion', onclick: async (e) => {
+      e.preventDefault(); await api('/logout', { method: 'POST' }); vueConnexion();
+    } }, 'Déconnexion'));
+  }
+  catalogue = await api('/catalogue');
+  router();
+}
+
 window.addEventListener('hashchange', router);
-router();
+demarrer();
