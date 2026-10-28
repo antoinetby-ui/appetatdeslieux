@@ -61,7 +61,13 @@ let client;
 
 export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
   if (!photos.length) throw new Error('Ajoutez au moins une photo avant de lancer l\'analyse.');
-  client ??= new Anthropic();
+  const cle = (process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!cle) throw new Error('Clé API Anthropic absente : renseignez ANTHROPIC_API_KEY.');
+  if (!/^[\x21-\x7e]+$/.test(cle)) {
+    throw new Error('Clé API mal copiée (elle contient « … », un espace ou un accent) : '
+      + 'créez une nouvelle clé sur console.anthropic.com et copiez-la avec le bouton « Copy ».');
+  }
+  client ??= new Anthropic({ apiKey: cle });
 
   const contexte = [
     `Pièce : ${piece.nom} (type : ${piece.type}).`,
