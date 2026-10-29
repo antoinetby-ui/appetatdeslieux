@@ -2,10 +2,21 @@
 const $app = document.getElementById('app');
 let catalogue = { typesPieces: [], etats: [], categories: [] };
 
+// Ordre d'affichage de l'inventaire (identique au PDF)
 const CATEGORIES = {
-  revetement: 'Revêtement', mobilier: 'Mobilier', equipement: 'Équipement', electricite: 'Électricité',
-  plomberie: 'Plomberie', menuiserie: 'Menuiserie', autre: 'Autre',
+  revetement: 'Revêtement', menuiserie: 'Menuiserie', electricite: 'Électricité', plomberie: 'Plomberie',
+  equipement: 'Équipement', mobilier: 'Mobilier', autre: 'Autre',
 };
+const CATEGORIES_PLURIEL = {
+  revetement: 'Revêtements', menuiserie: 'Menuiseries', electricite: 'Électricité', plomberie: 'Plomberie',
+  equipement: 'Équipements', mobilier: 'Mobilier', autre: 'Autres',
+};
+const COULEURS_ETAT = {
+  'Neuf': '#4f6f4f', 'Très bon état': '#5f7a5a', 'Bon état': '#7d8a52',
+  "État d'usage": '#a68a64', 'Mauvais état': '#b0703c', 'Hors service': '#9c4a3c',
+};
+const pastilleEtat = (etat) => h('span', { class: 'etat' },
+  h('span', { class: 'point', style: `background:${COULEURS_ETAT[etat] ?? '#c9bfb0'}` }), etat || 'État non renseigné');
 
 // --- Icônes (trait fin, couleur héritée) --------------------------------------
 const ICONES = {
@@ -77,8 +88,10 @@ const debounce = (fn, ms = 500) => { let t; return (...a) => { clearTimeout(t); 
 
 function champ(label, input) { return h('div', {}, h('label', {}, label), input); }
 
-function modale(contenu) {
-  const voile = h('div', { class: 'voile', onclick: (e) => e.target === voile && voile.remove() }, h('div', { class: 'modale' }, contenu));
+// `feuille` : sur téléphone, la fenêtre monte du bas de l'écran
+function modale(contenu, { feuille = false } = {}) {
+  const voile = h('div', { class: `voile${feuille ? ' feuille' : ''}`, onclick: (e) => e.target === voile && voile.remove() },
+    h('div', { class: 'modale' }, contenu));
   document.body.append(voile);
   return () => voile.remove();
 }
@@ -567,47 +580,70 @@ async function vueEdl(id) {
     return details;
   }
 
+  // Inventaire : liste compacte groupée par catégorie ; toucher une ligne ouvre sa fiche
   function tableauElements(piece) {
-    const ligne = (el) => {
-      const maj = debounce(async (champs) => {
-        try { Object.assign(el, await api(`/elements/${el.id}`, { method: 'PUT', body: champs })); } catch (e) { toast(e.message, true); }
+    const groupes = Object.keys(CATEGORIES).map((cat) => [cat, piece.elements.filter((e) => (CATEGORIES[e.categorie] ? e.categorie : 'autre') === cat)])
+      .filter(([, liste]) => liste.length);
+    const ligne = (el) => h('button', { type: 'button', class: 'element', onclick: () => ficheElement(piece, el) },
+      h('span', { class: 'element-haut' },
+        h('span', { class: 'element-nom' }, el.nom),
+        el.quantite > 1 && h('span', { class: 'element-qte' }, `× ${el.quantite}`)),
+      h('span', { class: 'element-bas' }, pastilleEtat(el.etat),
+        el.source === 'ia' && h('span', { class: 'badge ia', title: 'Détecté par l\'IA' }, 'IA')),
+      el.commentaire && h('span', { class: 'element-com' }, el.commentaire));
+    return h('div', { class: 'inventaire' },
+      h('div', { class: 'entete' }, h('h2', {}, 'Inventaire'),
+        h('span', { class: 'sous' }, `${piece.elements.length} élément${piece.elements.length > 1 ? 's' : ''}`)),
+      groupes.map(([cat, liste]) => h('div', { class: 'groupe' },
+        h('div', { class: 'groupe-titre' }, CATEGORIES_PLURIEL[cat]), liste.map(ligne))),
+      h('button', { type: 'button', class: 'ajout-element', onclick: () => ficheElement(piece) }, '+ Ajouter un élément'));
+  }
+
+  // Fiche d'un élément (création ou modification), en feuille qui monte du bas sur téléphone
+  function ficheElement(piece, el) {
+    const v = { categorie: el?.categorie ?? 'mobilier', quantite: el?.quantite ?? 1, etat: el?.etat ?? '' };
+    const nom = h('input', { value: el?.nom ?? '', placeholder: 'ex. Canapé 3 places tissu gris', enterKeyHint: 'done' });
+    const commentaire = h('textarea', { value: el?.commentaire ?? '', rows: 2, placeholder: 'Matériau, couleur, défauts visibles…' });
+    const choix = (options, cle, libelle) => {
+      const conteneur = h('div', { class: 'choix' });
+      const dessiner = () => conteneur.replaceChildren(...options.map((o) => h('button', {
+        type: 'button', class: `puce${v[cle] === o ? ' choisie' : ''}`, onclick: () => { v[cle] = v[cle] === o && cle === 'etat' ? '' : o; dessiner(); },
+      }, libelle(o))));
+      dessiner();
+      return conteneur;
+    };
+    const qte = h('span', { class: 'qte-valeur' }, String(v.quantite));
+    const changerQte = (d) => { v.quantite = Math.max(1, v.quantite + d); qte.textContent = v.quantite; };
+    const enregistrer = async (e) => {
+      if (!nom.value.trim()) { nom.focus(); return toast('Indiquez le nom de l\'élément.', true); }
+      const body = { categorie: v.categorie, nom: nom.value.trim(), quantite: v.quantite, etat: v.etat || null, commentaire: commentaire.value.trim() || null };
+      await action(e.currentTarget, async () => {
+        if (el) Object.assign(el, await api(`/elements/${el.id}`, { method: 'PUT', body }));
+        else piece.elements.push(await api(`/edl-pieces/${piece.id}/elements`, { method: 'POST', body }));
+        fermer(); rendre();
       });
-      return h('tr', {},
-        h('td', {}, h('select', { onchange: (e) => maj({ categorie: e.target.value }) },
-          catalogue.categories.map((c) => h('option', { value: c, selected: el.categorie === c }, CATEGORIES[c] ?? c)))),
-        h('td', { class: 'large' }, h('input', { value: el.nom, oninput: (e) => maj({ nom: e.target.value }) })),
-        h('td', {}, h('input', { class: 'qte', type: 'number', min: 1, value: el.quantite, oninput: (e) => maj({ quantite: Math.max(1, +e.target.value || 1) }) })),
-        h('td', {}, h('select', { onchange: (e) => maj({ etat: e.target.value }) },
-          h('option', { value: '' }, '—'), catalogue.etats.map((x) => h('option', { selected: el.etat === x }, x)))),
-        h('td', { class: 'large' }, h('input', { value: el.commentaire ?? '', placeholder: 'Commentaire', oninput: (e) => maj({ commentaire: e.target.value }) })),
-        h('td', {}, el.source === 'ia' ? h('span', { class: 'badge ia', title: 'Détecté par l\'IA' }, 'IA') : '',
-          h('button', { class: 'petit danger', title: 'Supprimer', onclick: async () => {
-            await api(`/elements/${el.id}`, { method: 'DELETE' }); piece.elements = piece.elements.filter((x) => x.id !== el.id); rendre();
-          } }, '✕')));
     };
-
-    const n = { categorie: h('select', {}, catalogue.categories.map((c) => h('option', { value: c, selected: c === 'mobilier' }, CATEGORIES[c] ?? c))),
-      nom: h('input', { placeholder: 'ex. Canapé 3 places' }), quantite: h('input', { class: 'qte', type: 'number', min: 1, value: 1 }),
-      etat: h('select', {}, h('option', { value: '' }, '—'), catalogue.etats.map((x) => h('option', {}, x))),
-      commentaire: h('input', { placeholder: 'Commentaire' }) };
-    const ajouter = async () => {
-      if (!n.nom.value.trim()) { n.nom.focus(); return; }
-      try {
-        const el = await api(`/edl-pieces/${piece.id}/elements`, { method: 'POST', body: {
-          categorie: n.categorie.value, nom: n.nom.value.trim(), quantite: Math.max(1, +n.quantite.value || 1), etat: n.etat.value || null, commentaire: n.commentaire.value.trim() || null } });
-        piece.elements.push(el); rendre();
-        document.querySelector(`[data-ajout="${piece.id}"]`)?.focus();
-      } catch (e) { toast(e.message, true); }
-    };
-    n.nom.dataset.ajout = piece.id;
-    for (const i of [n.nom, n.commentaire, n.quantite]) i.addEventListener('keydown', (e) => e.key === 'Enter' && ajouter());
-
-    return h('div', { class: 'defile' }, h('h2', { style: 'margin-top:16px' }, 'Inventaire'),
-      h('table', { class: 'tableau' },
-        h('thead', {}, h('tr', {}, ['Catégorie', 'Élément', 'Qté', 'État', 'Commentaire', ''].map((t) => h('th', {}, t)))),
-        h('tbody', {}, piece.elements.map(ligne),
-          h('tr', {}, h('td', {}, n.categorie), h('td', { class: 'large' }, n.nom), h('td', {}, n.quantite), h('td', {}, n.etat),
-            h('td', { class: 'large' }, n.commentaire), h('td', {}, h('button', { class: 'petit primaire', onclick: ajouter }, '+'))))));
+    const fermer = modale(h('div', { class: 'fiche' },
+      h('h2', {}, el ? 'Modifier l\'élément' : 'Ajouter un élément'),
+      champ('Élément', nom),
+      h('div', {}, h('label', {}, 'Catégorie'), choix(Object.keys(CATEGORIES), 'categorie', (c) => CATEGORIES[c])),
+      h('div', { class: 'qte-ligne' }, h('label', {}, 'Quantité'),
+        h('div', { class: 'stepper' },
+          h('button', { type: 'button', 'aria-label': 'Moins', onclick: () => changerQte(-1) }, '−'), qte,
+          h('button', { type: 'button', 'aria-label': 'Plus', onclick: () => changerQte(1) }, '+'))),
+      h('div', {}, h('label', {}, 'État'), choix(catalogue.etats, 'etat', (x) => pastilleEtat(x))),
+      champ('Commentaire', commentaire),
+      h('div', { class: 'fiche-actions' },
+        h('button', { class: 'primaire', onclick: enregistrer }, 'Enregistrer'),
+        el && h('button', { class: 'danger', onclick: async () => {
+          if (!confirm(`Supprimer « ${el.nom} » ?`)) return;
+          try {
+            await api(`/elements/${el.id}`, { method: 'DELETE' });
+            piece.elements = piece.elements.filter((x) => x.id !== el.id); fermer(); rendre();
+          } catch (err) { toast(err.message, true); }
+        } }, 'Supprimer'),
+        h('button', { onclick: () => fermer() }, 'Annuler'))), { feuille: true });
+    if (!el) nom.focus();
   }
 
   rendre();

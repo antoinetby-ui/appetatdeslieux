@@ -1,5 +1,6 @@
 /* Palette sobre et haut de gamme : ivoire, sable, taupe, bronze. */
 :root {
+  color-scheme: only light; /* empêche le navigateur d'assombrir automatiquement l'application */
   --ivoire: #fbf8f3; --fond: #f4eee5; --sable: #ebe2d4; --sable-fonce: #ddd0bd;
   --taupe: #8b7d6b; --taupe-fonce: #5b5044; --encre: #2f2a24;
   --bronze: #a68a64; --bronze-fonce: #8a7050;
@@ -158,12 +159,50 @@ textarea { min-height: 76px; resize: vertical; }
 .resume { background: #f6efe3; border-left: 2px solid var(--bronze); padding: 12px 14px; border-radius: 2px; margin: 14px 0; }
 .resume textarea { background: transparent; border-color: transparent; padding: 4px 0; }
 .resume textarea:focus { background: #fff; padding: 9px 11px; }
-.tableau { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 8px; }
-.tableau th { text-align: left; color: var(--gris); font-weight: 500; font-size: .7rem; letter-spacing: .1em; text-transform: uppercase;
-  padding: 8px 4px; border-bottom: 1px solid var(--bord); }
-.tableau td { padding: 4px; border-bottom: 1px solid var(--sable); vertical-align: top; }
-.tableau input, .tableau select { padding: 6px 7px; font-size: .87rem; }
-.tableau .qte { width: 60px; }
+/* Inventaire en liste compacte */
+.inventaire { margin-top: 22px; }
+.inventaire .entete { margin-bottom: 8px; }
+.inventaire .entete h2 { margin: 0; }
+.groupe { margin-bottom: 14px; }
+.groupe-titre { font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--bronze-fonce);
+  padding: 6px 2px; border-bottom: 1px solid var(--bord); }
+.element { display: grid; gap: 4px; width: 100%; text-align: left; padding: 11px 4px; border: 0; border-bottom: 1px solid var(--sable);
+  border-radius: 0; background: none; font-size: .95rem; }
+.element:hover { background: var(--fond); border-color: var(--sable); }
+.element:disabled { cursor: default; opacity: 1; }
+.element-haut { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.element-nom { font-weight: 500; }
+.element-qte { font-weight: 600; font-size: .95rem; font-variant-numeric: tabular-nums; color: var(--taupe-fonce); white-space: nowrap; }
+.element-bas { display: flex; gap: 8px; align-items: center; }
+.element-com { font-size: .82rem; color: var(--gris); line-height: 1.35; }
+.etat { display: inline-flex; align-items: center; gap: 6px; font-size: .82rem; color: var(--taupe-fonce); }
+.etat .point { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ajout-element { width: 100%; justify-content: center; padding: 13px; border: 1px dashed var(--sable-fonce); background: none; color: var(--taupe-fonce); }
+.zone:disabled .ajout-element { display: none; }
+
+/* Fiche élément */
+.fiche { display: grid; gap: 16px; }
+.fiche h2 { margin: 0; }
+.choix { display: flex; flex-wrap: wrap; gap: 6px; }
+.choix .puce { padding: 8px 13px; }
+.choix .puce.choisie { background: var(--taupe-fonce); color: var(--ivoire); }
+.choix .puce.choisie .etat { color: var(--ivoire); }
+.qte-ligne { display: flex; justify-content: space-between; align-items: center; }
+.qte-ligne label { margin: 0; }
+.stepper { display: flex; align-items: center; gap: 4px; }
+.stepper button { width: 44px; height: 44px; justify-content: center; font-size: 1.3rem; padding: 0; border-radius: 50%; }
+.qte-valeur { min-width: 44px; text-align: center; font-weight: 600; font-size: 1.3rem; font-variant-numeric: tabular-nums; }
+.fiche-actions { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; }
+.fiche-actions .primaire { justify-content: center; padding: 13px; }
+@media (max-width: 640px) {
+  .voile.feuille { align-items: flex-end; padding: 0; }
+  .voile.feuille .modale { max-width: none; border-radius: 16px 16px 0 0; max-height: 92vh; padding: 22px 18px calc(18px + env(safe-area-inset-bottom));
+    animation: monte .28s cubic-bezier(.3, .7, .2, 1); }
+  .voile.feuille .modale::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--sable-fonce); margin: -8px auto 14px; }
+  .fiche-actions { grid-template-columns: 1fr 1fr; }
+  .fiche-actions .primaire { grid-column: 1 / -1; }
+}
+@keyframes monte { from { transform: translateY(100%); } }
 .defile { overflow-x: auto; }
 
 /* Verrou et signatures */
@@ -201,10 +240,6 @@ textarea { min-height: 76px; resize: vertical; }
   .pieces-bien .item .type { min-width: 0; width: 64px; font-size: .72rem; }
   .pieces-bien .item input { min-width: 0; }
   h1 { font-size: 1.6rem; }
-  .tableau thead { display: none; }
-  .tableau tr { display: grid; grid-template-columns: 1fr 70px; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--bord); }
-  .tableau td { border: none; padding: 0; }
-  .tableau td.large { grid-column: 1 / -1; }
 }
 
 /* --- Animation d'ouverture : la marque, puis la clé qui glisse, tourne et ouvre --- */
