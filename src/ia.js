@@ -43,8 +43,7 @@ const SCHEMA = {
 };
 
 const SYSTEM = `Tu es un expert en états des lieux immobiliers en France (location, loi ALUR).
-On te transmet plusieurs photos (souvent 5 à 10) d'une même pièce, prises sous différents angles ;
-certaines peuvent être des vues extraites d'une vidéo, très proches les unes des autres.
+On te transmet plusieurs photos (souvent 5 à 10) d'une même pièce, prises sous différents angles.
 Établis l'inventaire de la pièce tel qu'il figurerait dans un état des lieux professionnel.
 
 Ce qu'il faut relever :
@@ -73,7 +72,14 @@ Règles :
   trou, éclat, trace d'humidité, jaunissement…). Chaîne vide si rien à signaler.
 - Évalue l'état avec l'échelle imposée ; si c'est difficile à juger sur photo, choisis l'état le
   plus probable et indique « à vérifier » dans le commentaire.
-- Rédige en français, de façon factuelle et concise.`;
+- Rédige en français, de façon factuelle et concise.
+
+Remarques dictées : l'agent peut avoir dicté sur place des remarques sur la pièce (transcription
+automatique de la voix, sans ponctuation fiable). Elles font foi, au même titre que les photos :
+- ajoute les éléments et les défauts qu'elles mentionnent, même s'ils ne se voient pas sur les photos ;
+- corrige l'état ou la quantité d'un élément quand une remarque le précise (ex. « le radiateur ne chauffe pas ») ;
+- reprends dans le résumé les remarques qui ne concernent aucun élément (odeur, bruit, humidité…) ;
+- corrige les mots manifestement mal transcrits d'après le contexte, sans inventer de contenu.`;
 
 async function photoBlock(fichier) {
   const data = (await sharp(path.join(PHOTOS_DIR, fichier))
@@ -101,8 +107,8 @@ function lireJson(response) {
   return JSON.parse(response.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));
 }
 
-export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
-  if (!photos.length) throw new Error('Ajoutez au moins une photo avant de lancer l\'analyse.');
+export async function analyserPiece({ piece, photos, bien, manuels = [], dictee = '' }) {
+  if (!photos.length && !dictee.trim()) throw new Error('Ajoutez des photos ou dictez des remarques avant de lancer l\'analyse.');
   const client = obtenirClient();
 
   const contexte = [
@@ -111,7 +117,8 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
     manuels.length
       ? `Éléments déjà saisis à la main (ne les répète pas dans ta liste) : ${manuels.map((e) => `${e.quantite} × ${e.nom}`).join(', ')}.`
       : '',
-    `${photos.length} photo(s) de cette pièce suivent.`,
+    dictee.trim() ? `Remarques dictées sur place :\n« ${dictee.trim()} »` : '',
+    photos.length ? `${photos.length} photo(s) de cette pièce suivent.` : 'Aucune photo : appuie-toi uniquement sur les remarques dictées.',
   ].filter(Boolean).join('\n');
 
   const response = await client.beta.messages.create({
@@ -138,59 +145,3 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
   return result;
 }
 
-// --- Visite vidéo du logement : à quelle pièce correspond chaque vue ? ---------
-// Les vues sont envoyées en petit format (512 px) : il s'agit seulement de reconnaître la pièce.
-const SYSTEM_TRI = `Tu aides à réaliser un état des lieux. On te transmet, dans l'ordre chronologique,
-des vues extraites d'une vidéo où une personne parcourt tout le logement, pièce après pièce.
-Pour chaque vue, indique la pièce de la liste fournie qu'elle montre.
-
-Règles :
-- Sers-toi de l'ordre : des vues consécutives montrent le plus souvent la même pièce ; on change
-  de pièce en passant une porte ou un couloir.
-- Quand deux pièces sont du même type (Chambre 1, Chambre 2), distingue-les par leur aspect
-  (mobilier, couleurs, sol) et par l'ordre de la visite.
-- « aucune » pour une vue floue, une transition, un mur sans repère ou une vue inexploitable.
-- Si une vue montre clairement un espace absent de la liste, réponds « nouvelle:<Type> » avec un
-  des types proposés.`;
-
-export async function classerVues({ vues, pieces, types }) {
-  const client = obtenirClient();
-  const choix = [...pieces.map((p) => `p${p.id}`), 'aucune', ...types.map((t) => `nouvelle:${t}`)];
-  const schema = {
-    type: 'object', additionalProperties: false, required: ['vues'],
-    properties: {
-      vues: {
-        type: 'array',
-        items: {
-          type: 'object', additionalProperties: false, required: ['vue', 'piece'],
-          properties: { vue: { type: 'integer' }, piece: { type: 'string', enum: choix } },
-        },
-      },
-    },
-  };
-  const blocs = [];
-  for (const [i, tampon] of vues.entries()) {
-    const data = (await sharp(tampon).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
-    blocs.push({ type: 'text', text: `Vue ${i + 1}` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
-  }
-  const response = await client.beta.messages.create({
-    model: MODEL,
-    max_tokens: 8000,
-    ...(FALLBACK && { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }),
-    output_config: { effort: EFFORT, format: { type: 'json_schema', schema } },
-    system: SYSTEM_TRI,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: `Pièces de l'état des lieux :\n${pieces.map((p) => `- p${p.id} : ${p.nom} (${p.type})`).join('\n')}\n\n`
-          + `Types possibles pour un espace absent de la liste : ${types.join(', ')}.\n\n${vues.length} vues suivent.` },
-        ...blocs,
-        { type: 'text', text: 'Indique la pièce de chaque vue, de la vue 1 à la dernière.' },
-      ],
-    }],
-  });
-  // vue (numérotée à partir de 1) → choix
-  const tri = new Map();
-  for (const { vue, piece } of lireJson(response).vues) if (vue >= 1 && vue <= vues.length) tri.set(vue - 1, piece);
-  return tri;
-}

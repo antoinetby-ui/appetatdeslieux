@@ -85,6 +85,8 @@ ajouterColonnes('etats_des_lieux', {
   sig_locataire: 'TEXT', sig_locataire_nom: 'TEXT', sig_locataire_le: 'TEXT',
   envoye_le: 'TEXT',
 });
+// Remarques dictées sur place, analysées avec les photos
+ajouterColonnes('edl_pieces', { dictee: 'TEXT' });
 
 export const all = (sql, ...p) => db.prepare(sql).all(...p);
 export const get = (sql, ...p) => db.prepare(sql).get(...p);

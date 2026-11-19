@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, transaction, PHOTOS_DIR } from './src/db.js';
-import { analyserPiece, classerVues, ETATS, CATEGORIES } from './src/ia.js';
+import { analyserPiece, ETATS, CATEGORIES } from './src/ia.js';
 import { genererPdf } from './src/pdf.js';
 import { routesAuth, authActive } from './src/auth.js';
 import { envoyerEdl, mailConfigure } from './src/mail.js';
@@ -285,7 +285,7 @@ app.post('/api/edl/:id/pieces', verrouEdl, (req, res) => {
 });
 
 app.put('/api/edl-pieces/:id', verrouPiece, (req, res) => {
-  const champs = ['nom', 'etat_general', 'observations', 'resume_ia'].filter((c) => c in req.body);
+  const champs = ['nom', 'etat_general', 'observations', 'resume_ia', 'dictee'].filter((c) => c in req.body);
   if (champs.length) {
     run(`UPDATE edl_pieces SET ${champs.map((c) => `${c} = ?`).join(',')} WHERE id = ?`,
       ...champs.map((c) => req.body[c]), req.params.id);
@@ -347,7 +347,7 @@ app.post('/api/edl-pieces/:id/analyser', verrouPiece, async (req, res) => {
   const photos = all('SELECT * FROM photos WHERE edl_piece_id = ? ORDER BY id', piece.id);
   try {
     const manuels = all("SELECT nom, quantite FROM elements WHERE edl_piece_id = ? AND source = 'manuel'", piece.id);
-    const r = await analyserPiece({ piece, photos, bien, manuels });
+    const r = await analyserPiece({ piece, photos, bien, manuels, dictee: piece.dictee || '' });
     transaction(() => {
       run("DELETE FROM elements WHERE edl_piece_id = ? AND source = 'ia'", piece.id);
       for (const e of r.elements) {
@@ -362,61 +362,6 @@ app.post('/api/edl-pieces/:id/analyser', verrouPiece, async (req, res) => {
     console.error('Analyse IA :', e);
     res.status(502).json({ error: messageErreurIa(e) });
   }
-});
-
-// --- Visite vidéo : les vues d'une vidéo de tout le logement, réparties par pièce ----
-const uploadVisite = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 60 } });
-const MAX_VUES_PAR_PIECE = 8; // au-delà, l'analyse coûterait plus sans rien apprendre de neuf
-
-app.post('/api/edl/:id/visite', verrouEdl, uploadVisite.array('vues'), async (req, res) => {
-  const edlId = req.params.id;
-  if (!get('SELECT id FROM etats_des_lieux WHERE id = ?', edlId)) return res.status(404).json({ error: 'Introuvable' });
-  const vues = (req.files ?? []).map((f) => f.buffer);
-  if (vues.length < 2) return res.status(400).json({ error: 'Vidéo trop courte : aucune vue à répartir.' });
-  const pieces = all('SELECT * FROM edl_pieces WHERE edl_id = ? ORDER BY ordre, id', edlId);
-  let tri;
-  try {
-    tri = await classerVues({ vues, pieces, types: TYPES_PIECES });
-  } catch (e) {
-    console.error('Tri des vues :', e);
-    return res.status(502).json({ error: messageErreurIa(e) });
-  }
-
-  // Regroupe les vues par pièce ; crée les espaces repérés qui manquaient
-  const parPiece = new Map();
-  const creees = new Set();
-  for (const [i, choix] of tri) {
-    let pieceId = null;
-    if (choix.startsWith('p')) pieceId = pieces.find((p) => `p${p.id}` === choix)?.id;
-    else if (choix.startsWith('nouvelle:')) {
-      const type = choix.slice('nouvelle:'.length);
-      let p = pieces.find((x) => x.type === type && creees.has(x.id));
-      if (!p) {
-        const n = pieces.filter((x) => x.type === type).length;
-        const { m } = get('SELECT COALESCE(MAX(ordre), -1) + 1 AS m FROM edl_pieces WHERE edl_id = ?', edlId);
-        const { lastInsertRowid } = run('INSERT INTO edl_pieces (edl_id, type, nom, ordre) VALUES (?, ?, ?, ?)',
-          edlId, type, n ? `${type} ${n + 1}` : type, m);
-        p = get('SELECT * FROM edl_pieces WHERE id = ?', lastInsertRowid);
-        pieces.push(p); creees.add(p.id);
-      }
-      pieceId = p.id;
-    }
-    if (pieceId) parPiece.set(pieceId, [...(parPiece.get(pieceId) ?? []), i]);
-  }
-
-  const repartition = [];
-  for (const [pieceId, indices] of parPiece) {
-    // Garde au plus MAX_VUES_PAR_PIECE vues, réparties sur le passage dans la pièce
-    const n = indices.length;
-    const gardees = n <= MAX_VUES_PAR_PIECE ? indices
-      : Array.from({ length: MAX_VUES_PAR_PIECE }, (_, k) => indices[Math.floor((k * n) / MAX_VUES_PAR_PIECE)]);
-    let ajoutees = 0;
-    for (const i of gardees) if (await enregistrerPhoto(vues[i], pieceId)) ajoutees++;
-    const p = pieces.find((x) => x.id === pieceId);
-    repartition.push({ piece_id: pieceId, nom: p.nom, ajoutees, nouvelle: creees.has(pieceId) });
-  }
-  const ignorees = vues.length - [...parPiece.values()].reduce((t, l) => t + l.length, 0);
-  res.json({ edl: edlComplet(edlId), repartition, ignorees });
 });
 
 // Déplacer une photo vers une autre pièce du même état des lieux

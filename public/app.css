@@ -138,7 +138,6 @@ textarea { min-height: 76px; resize: vertical; }
 .photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
 .photo button { position: absolute; top: 4px; right: 4px; padding: 0 7px; background: rgba(47, 42, 36, .65); color: #fff; border: none; }
 .boutons-photo { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 4px; }
-.boutons-photo .large { grid-column: 1 / -1; }
 .ajout-photo { position: relative; justify-content: center; padding: 14px 12px; font-size: .92rem; margin: 0; cursor: pointer;
   text-transform: none; letter-spacing: .02em; }
 .ajout-photo .icone svg { width: 22px; height: 22px; }
@@ -146,14 +145,17 @@ textarea { min-height: 76px; resize: vertical; }
 .ajout-photo input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 @media (max-width: 360px) { .boutons-photo { grid-template-columns: 1fr; } }
 .note-verrou { margin: 14px 0 4px; }
-.visite { display: grid; gap: 12px; }
-.visite-tete { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
-.visite-tete > .icone { width: 46px; height: 46px; border-radius: 50%; background: var(--fond); color: var(--bronze-fonce); }
-.visite-tete h2 { margin: 0 0 2px; }
-.visite-tete .sous { margin: 0; }
-.visite .boutons-photo { margin: 0; }
-.ajout-photo.occupe { opacity: .5; pointer-events: none; }
-.visite-etat { font-size: .85rem; color: var(--taupe-fonce); background: var(--fond); border-left: 2px solid var(--bronze); padding: 10px 12px; }
+/* Dictée vocale */
+.dictee { display: grid; gap: 8px; margin: 18px 0 14px; padding: 14px; border: 1px solid var(--bord); border-radius: 8px; background: var(--fond); }
+.dictee-tete { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.dictee-tete label { margin: 0; }
+.dictee-tete button { border-radius: 999px; padding: 8px 16px; }
+.dictee .sous { margin: 0; font-size: .78rem; }
+.dictee textarea { background: #fff; }
+.dictee.en-cours { border-color: var(--rouge); }
+.dictee.en-cours .dictee-tete button { background: var(--rouge); color: #fff; border-color: var(--rouge); animation: pulse 1.6s ease-in-out infinite; }
+.dictee-direct { font-style: italic; color: var(--taupe); font-size: .9rem; min-height: 1.3em; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(156, 74, 60, .15); } }
 .photo .deplacer { top: auto; bottom: 4px; }
 .apercu { width: 100%; max-height: 220px; object-fit: cover; border-radius: 6px; }
 .nom-bloc { display: grid; gap: 2px; }

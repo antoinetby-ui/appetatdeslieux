@@ -31,9 +31,9 @@ const ICONES = {
   signature: '<path d="M3 17c3-1 4.5-6 6.5-6S10 17 12 17s2.5-3 4-3 2 2 5 2"/><path d="M3 21h18"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/>',
   photo: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
-  video: '<rect x="3" y="6.5" width="13" height="11" rx="1.5"/><path d="m16 10.5 5-3v9l-5-3z"/>',
   galerie: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
+  micro: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
   telecharger: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/>',
 };
 function icone(nom) {
@@ -171,41 +171,6 @@ async function preparerPhoto(fichier, max = 1600) {
     return new File([blob], (fichier.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
   } catch {
     return fichier;
-  }
-}
-
-// Extrait des images réparties sur la durée d'une vidéo (1 toutes les ~2 s, de 3 à 10).
-// L'analyse IA ne lit que des images : ces vues sont traitées comme des photos de la pièce.
-async function imagesDeVideo(fichier, { max = 10, intervalle = 2, taille = 1600 } = {}) {
-  const url = URL.createObjectURL(fichier);
-  const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, preload: 'auto', src: url });
-  const attendre = (evt) => new Promise((ok, ko) => {
-    const fin = () => { video.removeEventListener(evt, succes); video.removeEventListener('error', echec); };
-    const succes = () => { fin(); ok(); };
-    const echec = () => { fin(); ko(new Error('format vidéo non lisible par ce navigateur')); };
-    video.addEventListener(evt, succes, { once: true });
-    video.addEventListener('error', echec, { once: true });
-  });
-  try {
-    await attendre('loadeddata');
-    const duree = video.duration;
-    if (!Number.isFinite(duree) || duree <= 0) throw new Error('durée de la vidéo inconnue');
-    const n = Math.min(max, Math.max(3, Math.round(duree / intervalle)));
-    const r = Math.min(1, taille / Math.max(video.videoWidth, video.videoHeight));
-    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(video.videoWidth * r), height: Math.round(video.videoHeight * r) });
-    const ctx = canvas.getContext('2d');
-    const nomBase = (fichier.name || 'video').replace(/\.\w+$/, '');
-    const images = [];
-    for (let i = 0; i < n; i++) {
-      video.currentTime = (duree * (i + 0.5)) / n;
-      await attendre('seeked');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
-      if (blob) images.push(new File([blob], `${nomBase}-vue-${i + 1}.jpg`, { type: 'image/jpeg' }));
-    }
-    return images;
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
 
@@ -480,8 +445,6 @@ async function vueEdl(id) {
           champ('Relevés de compteurs (eau, électricité, gaz)', h('textarea', { value: edl.compteurs ?? '', placeholder: 'ex. Électricité : 012345 kWh — Eau froide : 456 m³', oninput: (e) => sauverEdl({ compteurs: e.target.value }) })),
           champ('Clés remises', h('textarea', { value: edl.cles ?? '', placeholder: 'ex. 2 clés porte d\'entrée, 1 badge, 1 clé boîte aux lettres', oninput: (e) => sauverEdl({ cles: e.target.value }) })))),
 
-      carteVisite(),
-
       h('div', { class: 'entete' }, h('h2', {}, `Pièces (${analysees}/${edl.pieces.length} analysées)`)),
       ...edl.pieces.map(rendrePiece),
 
@@ -568,15 +531,9 @@ async function vueEdl(id) {
     // Envoi une par une, après conversion sur le téléphone (JPEG 1600 px) : rapide en 4G et
     // compatible avec les photos HEIC de l'iPhone, que le serveur ne sait pas lire.
     const envoyer = async (liste) => {
+      const photos = [...liste];
+      if (!photos.length) return;
       const erreurs = [];
-      // Une vidéo est découpée en quelques images sur le téléphone : elle n'est jamais envoyée
-      const photos = [];
-      for (const f of liste) {
-        if (!f.type.startsWith('video/')) { photos.push(f); continue; }
-        toast('Lecture de la vidéo…');
-        try { photos.push(...await imagesDeVideo(f)); } catch (err) { erreurs.push(`${f.name || 'vidéo'} (${err.message})`); }
-      }
-      if (!photos.length) { if (erreurs.length) toast(erreurs.join(', '), true); return; }
       for (const [i, f] of photos.entries()) {
         toast(photos.length > 1 ? `Envoi des photos… ${i + 1}/${photos.length}` : 'Envoi de la photo…');
         try {
@@ -604,11 +561,10 @@ async function vueEdl(id) {
       else toast(photos.length > 1 ? `${photos.length} photos ajoutées` : 'Photo ajoutée');
       ouvertes.add(piece.id); rendre();
     };
-    const fichiers = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, onchange: (e) => envoyer(e.target.files) });
+    const fichiers = h('input', { type: 'file', accept: 'image/*', multiple: true, onchange: (e) => envoyer(e.target.files) });
     const camera = h('input', { type: 'file', accept: 'image/*', capture: 'environment', onchange: (e) => envoyer(e.target.files) });
-    const filmer = h('input', { type: 'file', accept: 'video/*', capture: 'environment', onchange: (e) => envoyer(e.target.files) });
 
-    const btnIa = h('button', { class: 'ia', disabled: !piece.photos.length, onclick: (e) => action(e.currentTarget, async () => {
+    const btnIa = h('button', { class: 'ia', disabled: !piece.photos.length && !piece.dictee?.trim(), onclick: (e) => action(e.currentTarget, async () => {
       if (piece.analyse_at && !confirm('Relancer l\'analyse ? Les éléments détectés par l\'IA seront remplacés (vos ajouts et corrections manuels sont conservés).')) return;
       edl = await api(`/edl-pieces/${piece.id}/analyser`, { method: 'POST', reessais: 5 });
       toast('Analyse terminée'); rendre();
@@ -630,8 +586,7 @@ async function vueEdl(id) {
           ? h('p', { class: 'sous note-verrou' }, 'Document signé : touchez « Annuler les signatures » en haut de la page pour ajouter ou retirer des photos.')
           : h('div', { class: 'boutons-photo' },
             h('label', { class: 'btn primaire ajout-photo' }, camera, icone('photo'), 'Prendre une photo'),
-            h('label', { class: 'btn ajout-photo' }, filmer, icone('video'), 'Filmer la pièce'),
-            h('label', { class: 'btn ajout-photo large' }, fichiers, icone('galerie'), 'Importer photos ou vidéo')),
+            h('label', { class: 'btn ajout-photo' }, fichiers, icone('galerie'), 'Importer de la galerie')),
         piece.photos.length > 0 && h('div', { class: 'photos' },
           piece.photos.map((p) => h('div', { class: 'photo' },
             h('img', { src: `/photos/${p.fichier}`, loading: 'lazy', onclick: () => visionneuse(`/photos/${p.fichier}`) }),
@@ -640,6 +595,7 @@ async function vueEdl(id) {
               await api(`/photos/${p.id}`, { method: 'DELETE' }); piece.photos = piece.photos.filter((x) => x.id !== p.id); rendre();
             } }, '✕'),
             edl.pieces.length > 1 && h('button', { class: 'deplacer', title: 'Déplacer vers une autre pièce', onclick: () => deplacerPhoto(p, piece) }, '⇄')))),
+        blocDictee(piece, sauverPiece, verrouille),
         h('div', { class: 'actions' }, btnIa,
           h('button', { class: 'petit danger', onclick: async () => {
             if (!confirm(`Retirer « ${piece.nom} » de cet état des lieux ?`)) return;
@@ -676,63 +632,72 @@ async function vueEdl(id) {
   }
 
   // Fiche d'un élément (création ou modification), en feuille qui monte du bas sur téléphone
-  // --- Visite vidéo : une seule vidéo du logement, répartie par pièce par l'IA ---
-  let visite = { enCours: false, texte: '' };
-  const majVisite = (texte) => {
-    visite.texte = texte;
-    const el = document.querySelector('.visite-etat');
-    if (el) { el.textContent = texte; el.hidden = !texte; }
-  };
+  // --- Dictée vocale : remarques dites à voix haute, transcrites par le navigateur ---
+  // continuous=false et redémarrage à chaque fin de phrase : Chrome Android duplique sinon le texte.
+  let dictee = null; // { pieceId, reco, actif }
+  const Reconnaissance = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const arreterDictee = () => { if (dictee) { dictee.actif = false; try { dictee.reco.stop(); } catch {} } };
+  window.addEventListener('hashchange', arreterDictee, { once: true });
 
-  function carteVisite() {
-    const analyser = h('input', { type: 'checkbox', checked: visite.analyser ?? true, onchange: (e) => (visite.analyser = e.target.checked) });
-    const lancer = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) visiteVideo(f, analyser.checked); };
-    const bouton = (texte, ic, capture) => h('label', { class: `btn ajout-photo${capture ? ' primaire' : ''}${visite.enCours ? ' occupe' : ''}` },
-      h('input', { type: 'file', accept: 'video/*', capture: capture ? 'environment' : null, disabled: visite.enCours, onchange: lancer }),
-      icone(ic), texte);
-    return h('div', { class: 'carte visite' },
-      h('div', { class: 'visite-tete' }, icone('video'),
-        h('div', {}, h('h2', {}, 'Visite vidéo du logement'),
-          h('p', { class: 'sous' }, 'Filmez tout le logement en une seule fois, pièce après pièce : l\'IA range les images dans les bonnes pièces.'))),
-      h('div', { class: 'boutons-photo' }, bouton('Filmer le logement', 'video', true), bouton('Importer une vidéo', 'galerie', false)),
-      h('label', { class: 'case' }, analyser, 'Analyser ensuite chaque pièce automatiquement'),
-      h('div', { class: 'visite-etat', hidden: !visite.texte }, visite.texte));
+  function blocDictee(piece, sauverPiece, verrouille) {
+    const enCours = dictee?.pieceId === piece.id;
+    const zone = h('textarea', { 'data-dictee': piece.id, rows: 3, value: piece.dictee ?? '',
+      placeholder: Reconnaissance ? 'Vos remarques dictées apparaissent ici (modifiables).' : 'Touchez ici puis le micro de votre clavier pour dicter.',
+      oninput: (e) => { piece.dictee = e.target.value; sauverPiece({ dictee: piece.dictee }); } });
+    return h('div', { class: `dictee${enCours ? ' en-cours' : ''}` },
+      h('div', { class: 'dictee-tete' },
+        h('label', {}, 'Remarques vocales'),
+        !verrouille && h('button', { type: 'button', class: enCours ? 'danger' : '', onclick: () => (enCours ? arreterDictee() : demarrerDictee(piece, sauverPiece)) },
+          icone('micro'), enCours ? 'Arrêter' : 'Dicter')),
+      enCours && h('div', { class: 'dictee-direct', 'data-direct': piece.id }, 'Je vous écoute…'),
+      zone,
+      h('p', { class: 'sous' }, 'Ex. : « le radiateur ne chauffe pas, rayure sur la porte du placard, odeur d\'humidité ». L\'IA en tient compte avec les photos.'));
   }
 
-  async function visiteVideo(fichier, analyserEnsuite) {
-    if (visite.enCours) return;
-    visite.enCours = true; rendre();
-    try {
-      majVisite('Lecture de la vidéo…');
-      const vues = await imagesDeVideo(fichier, { max: 60, intervalle: 3, taille: 1280 });
-      majVisite(`Envoi de ${vues.length} vues…`);
-      const fd = new FormData();
-      for (const v of vues) fd.append('vues', v);
-      majVisite(`Répartition de ${vues.length} vues par pièce…`);
-      const r = await api(`/edl/${id}/visite`, { method: 'POST', body: fd, reessais: 5 });
-      edl = r.edl;
-      const remplies = r.repartition.filter((x) => x.ajoutees);
-      remplies.forEach((x) => ouvertes.add(x.piece_id));
-      const resume = remplies.map((x) => `${x.nom} : ${x.ajoutees}${x.nouvelle ? ' (ajoutée)' : ''}`).join(' · ');
-      majVisite(remplies.length ? `Vues rangées — ${resume}${r.ignorees ? ` · ${r.ignorees} vue(s) floue(s) ignorée(s)` : ''}` : 'Aucune pièce reconnue dans la vidéo.');
-      rendre();
-      if (analyserEnsuite) {
-        const echecs = [];
-        for (const [k, x] of remplies.entries()) {
-          majVisite(`Analyse de ${x.nom} (${k + 1}/${remplies.length})…`);
-          try { edl = await api(`/edl-pieces/${x.piece_id}/analyser`, { method: 'POST', reessais: 5 }); rendre(); }
-          catch (err) { if (err.deconnecte) return; echecs.push(`${x.nom} (${err.message})`); }
-        }
-        majVisite(echecs.length ? `Analyse terminée, sauf : ${echecs.join(', ')}` : `Terminé — vues par pièce : ${resume}. Vérifiez chaque pièce.`);
-      }
-    } catch (err) {
-      if (!err.deconnecte) { majVisite(''); toast(err.message, true); }
-    } finally {
-      visite.enCours = false; rendre();
+  function demarrerDictee(piece, sauverPiece) {
+    if (!Reconnaissance) {
+      document.querySelector(`[data-dictee="${piece.id}"]`)?.focus();
+      return toast('Dictée directe non disponible dans ce navigateur : utilisez le micro de votre clavier.', true);
     }
+    arreterDictee();
+    const reco = new Reconnaissance();
+    Object.assign(reco, { lang: 'fr-FR', continuous: false, interimResults: true });
+    const etat = { pieceId: piece.id, reco, actif: true };
+    reco.onresult = (e) => {
+      let provisoire = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const texte = e.results[i][0].transcript.trim();
+        if (!e.results[i].isFinal) { provisoire += texte; continue; }
+        if (!texte) continue;
+        // Chaque phrase dictée devient une phrase : majuscule et point final
+        const phrase = texte[0].toUpperCase() + texte.slice(1) + (/[.!?]$/.test(texte) ? '' : '.');
+        piece.dictee = [piece.dictee?.trim(), phrase].filter(Boolean).join(' ');
+        const zone = document.querySelector(`[data-dictee="${piece.id}"]`);
+        if (zone) zone.value = piece.dictee;
+        sauverPiece({ dictee: piece.dictee });
+      }
+      const direct = document.querySelector(`[data-direct="${piece.id}"]`);
+      if (direct) direct.textContent = provisoire || 'Je vous écoute…';
+    };
+    reco.onerror = (e) => {
+      if (['not-allowed', 'service-not-allowed', 'audio-capture'].includes(e.error)) {
+        etat.actif = false;
+        toast('Micro non autorisé : autorisez le micro pour ce site dans le navigateur.', true);
+      } else if (e.error === 'network') {
+        etat.actif = false;
+        toast('La dictée a besoin d\'Internet.', true);
+      }
+    };
+    reco.onend = () => {
+      if (etat.actif && dictee === etat) { try { reco.start(); return; } catch {} }
+      if (dictee === etat) { dictee = null; rendre(); }
+    };
+    dictee = etat;
+    try { reco.start(); } catch (err) { dictee = null; return toast(err.message, true); }
+    rendre();
   }
 
-  // Corriger le classement : déplacer une photo vers une autre pièce
+  // Déplacer une photo prise dans la mauvaise pièce
   function deplacerPhoto(photo, depuis) {
     const fermer = modale(h('div', { class: 'fiche' },
       h('h2', {}, 'Déplacer la photo'),
