@@ -43,7 +43,8 @@ const SCHEMA = {
 };
 
 const SYSTEM = `Tu es un expert en états des lieux immobiliers en France (location, loi ALUR).
-On te transmet plusieurs photos (souvent 5 à 10) d'une même pièce, prises sous différents angles.
+On te transmet plusieurs photos (souvent 5 à 10) d'une même pièce, prises sous différents angles ;
+certaines peuvent être des vues extraites d'une vidéo, très proches les unes des autres.
 Établis l'inventaire de la pièce tel qu'il figurerait dans un état des lieux professionnel.
 
 Ce qu'il faut relever :

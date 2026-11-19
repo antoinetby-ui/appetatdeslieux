@@ -31,6 +31,7 @@ const ICONES = {
   signature: '<path d="M3 17c3-1 4.5-6 6.5-6S10 17 12 17s2.5-3 4-3 2 2 5 2"/><path d="M3 21h18"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/>',
   photo: '<path d="M4 8.5A1.5 1.5 0 0 1 5.5 7h2.2l1.5-2h5.6l1.5 2h2.2A1.5 1.5 0 0 1 20 8.5v9a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
+  video: '<rect x="3" y="6.5" width="13" height="11" rx="1.5"/><path d="m16 10.5 5-3v9l-5-3z"/>',
   galerie: '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/><circle cx="9" cy="10" r="1.6"/><path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4"/>',
   chevron: '<path d="m9 6 6 6-6 6"/>',
   telecharger: '<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 19h16"/>',
@@ -149,6 +150,41 @@ async function preparerPhoto(fichier, max = 1600) {
     return new File([blob], (fichier.name || 'photo').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
   } catch {
     return fichier;
+  }
+}
+
+// Extrait des images réparties sur la durée d'une vidéo (1 toutes les ~2 s, de 3 à 10).
+// L'analyse IA ne lit que des images : ces vues sont traitées comme des photos de la pièce.
+async function imagesDeVideo(fichier, { max = 10, intervalle = 2, taille = 1600 } = {}) {
+  const url = URL.createObjectURL(fichier);
+  const video = Object.assign(document.createElement('video'), { muted: true, playsInline: true, preload: 'auto', src: url });
+  const attendre = (evt) => new Promise((ok, ko) => {
+    const fin = () => { video.removeEventListener(evt, succes); video.removeEventListener('error', echec); };
+    const succes = () => { fin(); ok(); };
+    const echec = () => { fin(); ko(new Error('format vidéo non lisible par ce navigateur')); };
+    video.addEventListener(evt, succes, { once: true });
+    video.addEventListener('error', echec, { once: true });
+  });
+  try {
+    await attendre('loadeddata');
+    const duree = video.duration;
+    if (!Number.isFinite(duree) || duree <= 0) throw new Error('durée de la vidéo inconnue');
+    const n = Math.min(max, Math.max(3, Math.round(duree / intervalle)));
+    const r = Math.min(1, taille / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(video.videoWidth * r), height: Math.round(video.videoHeight * r) });
+    const ctx = canvas.getContext('2d');
+    const nomBase = (fichier.name || 'video').replace(/\.\w+$/, '');
+    const images = [];
+    for (let i = 0; i < n; i++) {
+      video.currentTime = (duree * (i + 0.5)) / n;
+      await attendre('seeked');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
+      if (blob) images.push(new File([blob], `${nomBase}-vue-${i + 1}.jpg`, { type: 'image/jpeg' }));
+    }
+    return images;
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -509,9 +545,15 @@ async function vueEdl(id) {
     // Envoi une par une, après conversion sur le téléphone (JPEG 1600 px) : rapide en 4G et
     // compatible avec les photos HEIC de l'iPhone, que le serveur ne sait pas lire.
     const envoyer = async (liste) => {
-      const photos = [...liste];
-      if (!photos.length) return;
       const erreurs = [];
+      // Une vidéo est découpée en quelques images sur le téléphone : elle n'est jamais envoyée
+      const photos = [];
+      for (const f of liste) {
+        if (!f.type.startsWith('video/')) { photos.push(f); continue; }
+        toast('Lecture de la vidéo…');
+        try { photos.push(...await imagesDeVideo(f)); } catch (err) { erreurs.push(`${f.name || 'vidéo'} (${err.message})`); }
+      }
+      if (!photos.length) { if (erreurs.length) toast(erreurs.join(', '), true); return; }
       for (const [i, f] of photos.entries()) {
         toast(photos.length > 1 ? `Envoi des photos… ${i + 1}/${photos.length}` : 'Envoi de la photo…');
         try {
@@ -531,8 +573,9 @@ async function vueEdl(id) {
       else toast(photos.length > 1 ? `${photos.length} photos ajoutées` : 'Photo ajoutée');
       ouvertes.add(piece.id); rendre();
     };
-    const fichiers = h('input', { type: 'file', accept: 'image/*', multiple: true, onchange: (e) => envoyer(e.target.files) });
+    const fichiers = h('input', { type: 'file', accept: 'image/*,video/*', multiple: true, onchange: (e) => envoyer(e.target.files) });
     const camera = h('input', { type: 'file', accept: 'image/*', capture: 'environment', onchange: (e) => envoyer(e.target.files) });
+    const filmer = h('input', { type: 'file', accept: 'video/*', capture: 'environment', onchange: (e) => envoyer(e.target.files) });
 
     const btnIa = h('button', { class: 'ia', disabled: !piece.photos.length, onclick: (e) => action(e.currentTarget, async () => {
       if (piece.analyse_at && !confirm('Relancer l\'analyse ? Les éléments détectés par l\'IA seront remplacés (vos ajouts et corrections manuels sont conservés).')) return;
@@ -556,7 +599,8 @@ async function vueEdl(id) {
           ? h('p', { class: 'sous note-verrou' }, 'Document signé : touchez « Annuler les signatures » en haut de la page pour ajouter ou retirer des photos.')
           : h('div', { class: 'boutons-photo' },
             h('label', { class: 'btn primaire ajout-photo' }, camera, icone('photo'), 'Prendre une photo'),
-            h('label', { class: 'btn ajout-photo' }, fichiers, icone('galerie'), 'Importer de la galerie')),
+            h('label', { class: 'btn ajout-photo' }, filmer, icone('video'), 'Filmer la pièce'),
+            h('label', { class: 'btn ajout-photo large' }, fichiers, icone('galerie'), 'Importer photos ou vidéo')),
         piece.photos.length > 0 && h('div', { class: 'photos' },
           piece.photos.map((p) => h('div', { class: 'photo' },
             h('img', { src: `/photos/${p.fichier}`, loading: 'lazy', onclick: () => visionneuse(`/photos/${p.fichier}`) }),
