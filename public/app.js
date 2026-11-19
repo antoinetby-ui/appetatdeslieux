@@ -459,6 +459,8 @@ async function vueEdl(id) {
           champ('Relevés de compteurs (eau, électricité, gaz)', h('textarea', { value: edl.compteurs ?? '', placeholder: 'ex. Électricité : 012345 kWh — Eau froide : 456 m³', oninput: (e) => sauverEdl({ compteurs: e.target.value }) })),
           champ('Clés remises', h('textarea', { value: edl.cles ?? '', placeholder: 'ex. 2 clés porte d\'entrée, 1 badge, 1 clé boîte aux lettres', oninput: (e) => sauverEdl({ cles: e.target.value }) })))),
 
+      carteVisite(),
+
       h('div', { class: 'entete' }, h('h2', {}, `Pièces (${analysees}/${edl.pieces.length} analysées)`)),
       ...edl.pieces.map(rendrePiece),
 
@@ -607,7 +609,8 @@ async function vueEdl(id) {
             h('button', { title: 'Supprimer', onclick: async () => {
               if (!confirm('Supprimer cette photo ?')) return;
               await api(`/photos/${p.id}`, { method: 'DELETE' }); piece.photos = piece.photos.filter((x) => x.id !== p.id); rendre();
-            } }, '✕')))),
+            } }, '✕'),
+            edl.pieces.length > 1 && h('button', { class: 'deplacer', title: 'Déplacer vers une autre pièce', onclick: () => deplacerPhoto(p, piece) }, '⇄')))),
         h('div', { class: 'actions' }, btnIa,
           h('button', { class: 'petit danger', onclick: async () => {
             if (!confirm(`Retirer « ${piece.nom} » de cet état des lieux ?`)) return;
@@ -644,6 +647,74 @@ async function vueEdl(id) {
   }
 
   // Fiche d'un élément (création ou modification), en feuille qui monte du bas sur téléphone
+  // --- Visite vidéo : une seule vidéo du logement, répartie par pièce par l'IA ---
+  let visite = { enCours: false, texte: '' };
+  const majVisite = (texte) => {
+    visite.texte = texte;
+    const el = document.querySelector('.visite-etat');
+    if (el) { el.textContent = texte; el.hidden = !texte; }
+  };
+
+  function carteVisite() {
+    const analyser = h('input', { type: 'checkbox', checked: visite.analyser ?? true, onchange: (e) => (visite.analyser = e.target.checked) });
+    const lancer = (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) visiteVideo(f, analyser.checked); };
+    const bouton = (texte, ic, capture) => h('label', { class: `btn ajout-photo${capture ? ' primaire' : ''}${visite.enCours ? ' occupe' : ''}` },
+      h('input', { type: 'file', accept: 'video/*', capture: capture ? 'environment' : null, disabled: visite.enCours, onchange: lancer }),
+      icone(ic), texte);
+    return h('div', { class: 'carte visite' },
+      h('div', { class: 'visite-tete' }, icone('video'),
+        h('div', {}, h('h2', {}, 'Visite vidéo du logement'),
+          h('p', { class: 'sous' }, 'Filmez tout le logement en une seule fois, pièce après pièce : l\'IA range les images dans les bonnes pièces.'))),
+      h('div', { class: 'boutons-photo' }, bouton('Filmer le logement', 'video', true), bouton('Importer une vidéo', 'galerie', false)),
+      h('label', { class: 'case' }, analyser, 'Analyser ensuite chaque pièce automatiquement'),
+      h('div', { class: 'visite-etat', hidden: !visite.texte }, visite.texte));
+  }
+
+  async function visiteVideo(fichier, analyserEnsuite) {
+    if (visite.enCours) return;
+    visite.enCours = true; rendre();
+    try {
+      majVisite('Lecture de la vidéo…');
+      const vues = await imagesDeVideo(fichier, { max: 60, intervalle: 3, taille: 1280 });
+      majVisite(`Envoi de ${vues.length} vues…`);
+      const fd = new FormData();
+      for (const v of vues) fd.append('vues', v);
+      majVisite(`Répartition de ${vues.length} vues par pièce…`);
+      const r = await api(`/edl/${id}/visite`, { method: 'POST', body: fd });
+      edl = r.edl;
+      const remplies = r.repartition.filter((x) => x.ajoutees);
+      remplies.forEach((x) => ouvertes.add(x.piece_id));
+      const resume = remplies.map((x) => `${x.nom} : ${x.ajoutees}${x.nouvelle ? ' (ajoutée)' : ''}`).join(' · ');
+      majVisite(remplies.length ? `Vues rangées — ${resume}${r.ignorees ? ` · ${r.ignorees} vue(s) floue(s) ignorée(s)` : ''}` : 'Aucune pièce reconnue dans la vidéo.');
+      rendre();
+      if (analyserEnsuite) {
+        const echecs = [];
+        for (const [k, x] of remplies.entries()) {
+          majVisite(`Analyse de ${x.nom} (${k + 1}/${remplies.length})…`);
+          try { edl = await api(`/edl-pieces/${x.piece_id}/analyser`, { method: 'POST' }); rendre(); }
+          catch (err) { if (err.deconnecte) return; echecs.push(`${x.nom} (${err.message})`); }
+        }
+        majVisite(echecs.length ? `Analyse terminée, sauf : ${echecs.join(', ')}` : `Terminé — vues par pièce : ${resume}. Vérifiez chaque pièce.`);
+      }
+    } catch (err) {
+      if (!err.deconnecte) { majVisite(''); toast(err.message, true); }
+    } finally {
+      visite.enCours = false; rendre();
+    }
+  }
+
+  // Corriger le classement : déplacer une photo vers une autre pièce
+  function deplacerPhoto(photo, depuis) {
+    const fermer = modale(h('div', { class: 'fiche' },
+      h('h2', {}, 'Déplacer la photo'),
+      h('img', { src: `/photos/${photo.fichier}`, class: 'apercu' }),
+      h('div', { class: 'choix' }, edl.pieces.filter((p) => p.id !== depuis.id).map((p) => h('button', { type: 'button', class: 'puce', onclick: async () => {
+        try { edl = await api(`/photos/${photo.id}`, { method: 'PUT', body: { edl_piece_id: p.id } }); ouvertes.add(p.id); fermer(); toast(`Photo déplacée vers ${p.nom}`); rendre(); }
+        catch (err) { toast(err.message, true); }
+      } }, p.nom))),
+      h('div', { class: 'fiche-actions' }, h('button', { onclick: () => fermer() }, 'Annuler'))), { feuille: true });
+  }
+
   function ficheElement(piece, el) {
     const v = { categorie: el?.categorie ?? 'mobilier', quantite: el?.quantite ?? 1, etat: el?.etat ?? '' };
     const nom = h('input', { value: el?.nom ?? '', placeholder: 'ex. Canapé 3 places tissu gris', enterKeyHint: 'done' });

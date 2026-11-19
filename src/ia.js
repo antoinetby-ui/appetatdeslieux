@@ -84,8 +84,7 @@ async function photoBlock(fichier) {
 
 let client;
 
-export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
-  if (!photos.length) throw new Error('Ajoutez au moins une photo avant de lancer l\'analyse.');
+function obtenirClient() {
   const cle = (process.env.ANTHROPIC_API_KEY || '').trim();
   if (!cle) throw new Error('Clé API Anthropic absente : renseignez ANTHROPIC_API_KEY.');
   if (!/^[\x21-\x7e]+$/.test(cle)) {
@@ -93,6 +92,18 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
       + 'créez une nouvelle clé sur console.anthropic.com et copiez-la avec le bouton « Copy ».');
   }
   client ??= new Anthropic({ apiKey: cle });
+  return client;
+}
+
+function lireJson(response) {
+  if (response.stop_reason === 'refusal') throw new Error('L\'analyse a été refusée par le modèle pour ces images.');
+  if (response.stop_reason === 'max_tokens') throw new Error('Réponse de l\'IA tronquée : essayez avec moins d\'images.');
+  return JSON.parse(response.content.filter((b) => b.type === 'text').map((b) => b.text).join(''));
+}
+
+export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
+  if (!photos.length) throw new Error('Ajoutez au moins une photo avant de lancer l\'analyse.');
+  const client = obtenirClient();
 
   const contexte = [
     `Pièce : ${piece.nom} (type : ${piece.type}).`,
@@ -122,14 +133,64 @@ export async function analyserPiece({ piece, photos, bien, manuels = [] }) {
     }],
   });
 
-  if (response.stop_reason === 'refusal') {
-    throw new Error('L\'analyse a été refusée par le modèle pour ces photos.');
-  }
-  if (response.stop_reason === 'max_tokens') {
-    throw new Error('Réponse de l\'IA tronquée : essayez avec moins de photos.');
-  }
-  const text = response.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-  const result = JSON.parse(text);
+  const result = lireJson(response);
   result.elements = result.elements.map((e) => ({ ...e, quantite: Math.max(1, e.quantite | 0) }));
   return result;
+}
+
+// --- Visite vidéo du logement : à quelle pièce correspond chaque vue ? ---------
+// Les vues sont envoyées en petit format (512 px) : il s'agit seulement de reconnaître la pièce.
+const SYSTEM_TRI = `Tu aides à réaliser un état des lieux. On te transmet, dans l'ordre chronologique,
+des vues extraites d'une vidéo où une personne parcourt tout le logement, pièce après pièce.
+Pour chaque vue, indique la pièce de la liste fournie qu'elle montre.
+
+Règles :
+- Sers-toi de l'ordre : des vues consécutives montrent le plus souvent la même pièce ; on change
+  de pièce en passant une porte ou un couloir.
+- Quand deux pièces sont du même type (Chambre 1, Chambre 2), distingue-les par leur aspect
+  (mobilier, couleurs, sol) et par l'ordre de la visite.
+- « aucune » pour une vue floue, une transition, un mur sans repère ou une vue inexploitable.
+- Si une vue montre clairement un espace absent de la liste, réponds « nouvelle:<Type> » avec un
+  des types proposés.`;
+
+export async function classerVues({ vues, pieces, types }) {
+  const client = obtenirClient();
+  const choix = [...pieces.map((p) => `p${p.id}`), 'aucune', ...types.map((t) => `nouvelle:${t}`)];
+  const schema = {
+    type: 'object', additionalProperties: false, required: ['vues'],
+    properties: {
+      vues: {
+        type: 'array',
+        items: {
+          type: 'object', additionalProperties: false, required: ['vue', 'piece'],
+          properties: { vue: { type: 'integer' }, piece: { type: 'string', enum: choix } },
+        },
+      },
+    },
+  };
+  const blocs = [];
+  for (const [i, tampon] of vues.entries()) {
+    const data = (await sharp(tampon).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer()).toString('base64');
+    blocs.push({ type: 'text', text: `Vue ${i + 1}` }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } });
+  }
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 8000,
+    ...(FALLBACK && { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' }),
+    output_config: { effort: EFFORT, format: { type: 'json_schema', schema } },
+    system: SYSTEM_TRI,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: `Pièces de l'état des lieux :\n${pieces.map((p) => `- p${p.id} : ${p.nom} (${p.type})`).join('\n')}\n\n`
+          + `Types possibles pour un espace absent de la liste : ${types.join(', ')}.\n\n${vues.length} vues suivent.` },
+        ...blocs,
+        { type: 'text', text: 'Indique la pièce de chaque vue, de la vue 1 à la dernière.' },
+      ],
+    }],
+  });
+  // vue (numérotée à partir de 1) → choix
+  const tri = new Map();
+  for (const { vue, piece } of lireJson(response).vues) if (vue >= 1 && vue <= vues.length) tri.set(vue - 1, piece);
+  return tri;
 }

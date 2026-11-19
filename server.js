@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { all, get, run, transaction, PHOTOS_DIR } from './src/db.js';
-import { analyserPiece, ETATS, CATEGORIES } from './src/ia.js';
+import { analyserPiece, classerVues, ETATS, CATEGORIES } from './src/ia.js';
 import { genererPdf } from './src/pdf.js';
 import { routesAuth, authActive } from './src/auth.js';
 import { envoyerEdl, mailConfigure } from './src/mail.js';
@@ -300,19 +300,28 @@ app.delete('/api/edl-pieces/:id', verrouPiece, (req, res) => {
   res.status(204).end();
 });
 
-// Photos : redimensionnées et converties en JPEG (compatibles IA et PDF, HEIC inclus si supporté).
+// Photos : redimensionnées et converties en JPEG (compatibles IA et PDF). Renvoie false si illisible.
+async function enregistrerPhoto(tampon, pieceId) {
+  try {
+    const fichier = `${crypto.randomUUID()}.jpg`;
+    await sharp(tampon).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 82 }).toFile(path.join(PHOTOS_DIR, fichier));
+    run('INSERT INTO photos (edl_piece_id, fichier) VALUES (?, ?)', pieceId, fichier);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const messageErreurIa = (e) => (e?.status === 401 || /API key|apiKey|authentication/i.test(e?.message || '')
+  ? 'Clé API Anthropic absente ou invalide (variable ANTHROPIC_API_KEY).'
+  : e?.message || 'Erreur pendant l\'analyse');
+
 app.post('/api/edl-pieces/:id/photos', verrouPiece, upload.array('photos'), async (req, res) => {
   if (!pieceEdl(req.params.id)) return res.status(404).json({ error: 'Pièce introuvable' });
   const erreurs = [];
   for (const f of req.files ?? []) {
-    try {
-      const fichier = `${crypto.randomUUID()}.jpg`;
-      await sharp(f.buffer).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 82 }).toFile(path.join(PHOTOS_DIR, fichier));
-      run('INSERT INTO photos (edl_piece_id, fichier) VALUES (?, ?)', req.params.id, fichier);
-    } catch {
-      erreurs.push(f.originalname);
-    }
+    if (!await enregistrerPhoto(f.buffer, req.params.id)) erreurs.push(f.originalname);
   }
   res.status(201).json({
     photos: all('SELECT * FROM photos WHERE edl_piece_id = ? ORDER BY id', req.params.id),
@@ -351,11 +360,72 @@ app.post('/api/edl-pieces/:id/analyser', verrouPiece, async (req, res) => {
     res.json(edlComplet(piece.edl_id));
   } catch (e) {
     console.error('Analyse IA :', e);
-    const message = e?.status === 401 || /API key|apiKey|authentication/i.test(e?.message || '')
-      ? 'Clé API Anthropic absente ou invalide (variable ANTHROPIC_API_KEY).'
-      : e.message || 'Erreur pendant l\'analyse';
-    res.status(502).json({ error: message });
+    res.status(502).json({ error: messageErreurIa(e) });
   }
+});
+
+// --- Visite vidéo : les vues d'une vidéo de tout le logement, réparties par pièce ----
+const uploadVisite = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 60 } });
+const MAX_VUES_PAR_PIECE = 8; // au-delà, l'analyse coûterait plus sans rien apprendre de neuf
+
+app.post('/api/edl/:id/visite', verrouEdl, uploadVisite.array('vues'), async (req, res) => {
+  const edlId = req.params.id;
+  if (!get('SELECT id FROM etats_des_lieux WHERE id = ?', edlId)) return res.status(404).json({ error: 'Introuvable' });
+  const vues = (req.files ?? []).map((f) => f.buffer);
+  if (vues.length < 2) return res.status(400).json({ error: 'Vidéo trop courte : aucune vue à répartir.' });
+  const pieces = all('SELECT * FROM edl_pieces WHERE edl_id = ? ORDER BY ordre, id', edlId);
+  let tri;
+  try {
+    tri = await classerVues({ vues, pieces, types: TYPES_PIECES });
+  } catch (e) {
+    console.error('Tri des vues :', e);
+    return res.status(502).json({ error: messageErreurIa(e) });
+  }
+
+  // Regroupe les vues par pièce ; crée les espaces repérés qui manquaient
+  const parPiece = new Map();
+  const creees = new Set();
+  for (const [i, choix] of tri) {
+    let pieceId = null;
+    if (choix.startsWith('p')) pieceId = pieces.find((p) => `p${p.id}` === choix)?.id;
+    else if (choix.startsWith('nouvelle:')) {
+      const type = choix.slice('nouvelle:'.length);
+      let p = pieces.find((x) => x.type === type && creees.has(x.id));
+      if (!p) {
+        const n = pieces.filter((x) => x.type === type).length;
+        const { m } = get('SELECT COALESCE(MAX(ordre), -1) + 1 AS m FROM edl_pieces WHERE edl_id = ?', edlId);
+        const { lastInsertRowid } = run('INSERT INTO edl_pieces (edl_id, type, nom, ordre) VALUES (?, ?, ?, ?)',
+          edlId, type, n ? `${type} ${n + 1}` : type, m);
+        p = get('SELECT * FROM edl_pieces WHERE id = ?', lastInsertRowid);
+        pieces.push(p); creees.add(p.id);
+      }
+      pieceId = p.id;
+    }
+    if (pieceId) parPiece.set(pieceId, [...(parPiece.get(pieceId) ?? []), i]);
+  }
+
+  const repartition = [];
+  for (const [pieceId, indices] of parPiece) {
+    // Garde au plus MAX_VUES_PAR_PIECE vues, réparties sur le passage dans la pièce
+    const n = indices.length;
+    const gardees = n <= MAX_VUES_PAR_PIECE ? indices
+      : Array.from({ length: MAX_VUES_PAR_PIECE }, (_, k) => indices[Math.floor((k * n) / MAX_VUES_PAR_PIECE)]);
+    let ajoutees = 0;
+    for (const i of gardees) if (await enregistrerPhoto(vues[i], pieceId)) ajoutees++;
+    const p = pieces.find((x) => x.id === pieceId);
+    repartition.push({ piece_id: pieceId, nom: p.nom, ajoutees, nouvelle: creees.has(pieceId) });
+  }
+  const ignorees = vues.length - [...parPiece.values()].reduce((t, l) => t + l.length, 0);
+  res.json({ edl: edlComplet(edlId), repartition, ignorees });
+});
+
+// Déplacer une photo vers une autre pièce du même état des lieux
+app.put('/api/photos/:id', verrou(edlDePhoto), (req, res) => {
+  const photo = get('SELECT ph.*, p.edl_id FROM photos ph JOIN edl_pieces p ON p.id = ph.edl_piece_id WHERE ph.id = ?', req.params.id);
+  const cible = get('SELECT * FROM edl_pieces WHERE id = ?', req.body?.edl_piece_id);
+  if (!photo || !cible || cible.edl_id !== photo.edl_id) return res.status(400).json({ error: 'Pièce de destination invalide' });
+  run('UPDATE photos SET edl_piece_id = ? WHERE id = ?', cible.id, photo.id);
+  res.json(edlComplet(photo.edl_id));
 });
 
 // --- Éléments ----------------------------------------------------------------

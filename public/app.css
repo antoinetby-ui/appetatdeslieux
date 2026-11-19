@@ -146,6 +146,16 @@ textarea { min-height: 76px; resize: vertical; }
 .ajout-photo input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 @media (max-width: 360px) { .boutons-photo { grid-template-columns: 1fr; } }
 .note-verrou { margin: 14px 0 4px; }
+.visite { display: grid; gap: 12px; }
+.visite-tete { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; }
+.visite-tete > .icone { width: 46px; height: 46px; border-radius: 50%; background: var(--fond); color: var(--bronze-fonce); }
+.visite-tete h2 { margin: 0 0 2px; }
+.visite-tete .sous { margin: 0; }
+.visite .boutons-photo { margin: 0; }
+.ajout-photo.occupe { opacity: .5; pointer-events: none; }
+.visite-etat { font-size: .85rem; color: var(--taupe-fonce); background: var(--fond); border-left: 2px solid var(--bronze); padding: 10px 12px; }
+.photo .deplacer { top: auto; bottom: 4px; }
+.apercu { width: 100%; max-height: 220px; object-fit: cover; border-radius: 6px; }
 .nom-bloc { display: grid; gap: 2px; }
 .indice { font-size: .78rem; color: var(--gris); }
 .badge.invite { display: inline-flex; align-items: center; gap: 4px; background: var(--bronze); color: #fff; padding: 4px 10px; }

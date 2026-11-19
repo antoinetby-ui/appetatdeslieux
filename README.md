@@ -16,6 +16,10 @@ on photographie chaque pièce, l'IA dresse l'inventaire (meubles, équipements, 
 4. **Par pièce** : prendre des photos (appareil photo du téléphone) ou les importer, puis
    **✨ Analyser avec l'IA**. Claude renvoie un état général, une description et l'inventaire
    détaillé (catégorie, élément, quantité, état, commentaire sur les défauts visibles).
+   **Visite vidéo** : une seule vidéo de tout le logement suffit. Le téléphone en extrait une vue
+   toutes les ~3 s (60 au plus, la vidéo n'est jamais envoyée), l'IA range chaque vue dans sa
+   pièce (et ajoute un espace absent, ex. balcon), puis chaque pièce est analysée. Une vue mal
+   rangée se déplace avec le bouton ⇄.
 5. On **corrige ou ajoute** des éléments à la main. Les éléments manuels (et ceux de l'IA que
    vous avez modifiés) sont conservés si l'on relance l'analyse.
 6. Compteurs, clés, observations, puis **signature** : chaque partie coche « Lu et approuvé » et
