@@ -57,19 +57,40 @@ function h(tag, attrs = {}, ...enfants) {
   return el;
 }
 
-async function api(url, { method = 'GET', body } = {}) {
+// Quand le serveur redémarre (mise à jour Render), l'hébergeur répond 502/503/504 sans message :
+// on réessaie alors quelques fois (environ une minute) avant d'abandonner.
+const ATTENTES_REESSAI = [3000, 6000, 12000, 20000, 20000];
+const MSG_INDISPONIBLE = 'Serveur momentanément indisponible (redémarrage en cours ?) : réessayez dans une minute.';
+
+async function api(url, { method = 'GET', body, reessais = method === 'GET' ? 3 : 0 } = {}) {
   const opts = { method, headers: {} };
   if (body instanceof FormData) opts.body = body;
   else if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers['Content-Type'] = 'application/json'; }
-  const r = await fetch(`/api${url}`, opts);
-  if (r.status === 401 && url !== '/login') {
-    vueConnexion();
-    throw Object.assign(new Error('Session expirée, reconnectez-vous.'), { deconnecte: true });
+  for (let essai = 0; ; essai++) {
+    let r;
+    try {
+      r = await fetch(`/api${url}`, opts);
+    } catch (err) {
+      if (essai < reessais) { await attendreReessai(essai); continue; }
+      throw new Error(navigator.onLine === false ? 'Pas de connexion Internet.' : MSG_INDISPONIBLE);
+    }
+    if (r.status === 401 && url !== '/login') {
+      vueConnexion();
+      throw Object.assign(new Error('Session expirée, reconnectez-vous.'), { deconnecte: true });
+    }
+    if (r.status === 204) return null;
+    const data = await r.json().catch(() => ({}));
+    // Un 502 avec message vient de l'application (ex. erreur IA) : pas de nouvel essai
+    const indisponible = [502, 503, 504].includes(r.status) && !data.error;
+    if (indisponible && essai < reessais) { await attendreReessai(essai); continue; }
+    if (!r.ok) throw new Error(data.error || (indisponible ? MSG_INDISPONIBLE : `Erreur ${r.status}`));
+    return data;
   }
-  if (r.status === 204) return null;
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error || `Erreur ${r.status}`);
-  return data;
+}
+
+function attendreReessai(essai) {
+  toast('Serveur en cours de redémarrage, nouvel essai…');
+  return new Promise((ok) => setTimeout(ok, ATTENTES_REESSAI[essai] ?? 20000));
 }
 
 let toastTimer;
@@ -561,17 +582,25 @@ async function vueEdl(id) {
         try {
           const fd = new FormData();
           fd.append('photos', await preparerPhoto(f));
-          const r = await api(`/edl-pieces/${piece.id}/photos`, { method: 'POST', body: fd });
+          const r = await api(`/edl-pieces/${piece.id}/photos`, { method: 'POST', body: fd, reessais: 5 });
           piece.photos = r.photos;
           erreurs.push(...r.erreurs);
         } catch (err) {
           if (err.deconnecte) return;
+          // Serveur injoignable après une minute d'essais : inutile d'attendre pour les suivantes
+          if (err.message === MSG_INDISPONIBLE) {
+            erreurs.push(...photos.slice(i).map((x, k) => `${x.name || `photo ${i + k + 1}`} (${err.message})`));
+            break;
+          }
           // La raison est affichée pour pouvoir diagnostiquer un échec sur téléphone
-          const raison = err instanceof TypeError ? 'connexion interrompue' : err.message;
-          erreurs.push(`${f.name || `photo ${i + 1}`} (${raison})`);
+          erreurs.push(`${f.name || `photo ${i + 1}`} (${err.message})`);
         }
       }
-      if (erreurs.length) toast(`Photo(s) non envoyée(s) : ${erreurs.join(', ')}`, true);
+      if (erreurs.length) {
+        const raisons = [...new Set(erreurs.map((e) => e.match(/\((.*)\)$/)?.[1]))];
+        toast(raisons.length === 1 && raisons[0] && erreurs.length > 1
+          ? `${erreurs.length} photos non envoyées : ${raisons[0]}` : `Photo(s) non envoyée(s) : ${erreurs.join(', ')}`, true);
+      }
       else toast(photos.length > 1 ? `${photos.length} photos ajoutées` : 'Photo ajoutée');
       ouvertes.add(piece.id); rendre();
     };
@@ -581,7 +610,7 @@ async function vueEdl(id) {
 
     const btnIa = h('button', { class: 'ia', disabled: !piece.photos.length, onclick: (e) => action(e.currentTarget, async () => {
       if (piece.analyse_at && !confirm('Relancer l\'analyse ? Les éléments détectés par l\'IA seront remplacés (vos ajouts et corrections manuels sont conservés).')) return;
-      edl = await api(`/edl-pieces/${piece.id}/analyser`, { method: 'POST' });
+      edl = await api(`/edl-pieces/${piece.id}/analyser`, { method: 'POST', reessais: 5 });
       toast('Analyse terminée'); rendre();
     }, 'Analyse en cours…') }, piece.analyse_at ? '✦ Relancer l\'analyse IA' : '✦ Analyser avec l\'IA');
 
@@ -680,7 +709,7 @@ async function vueEdl(id) {
       const fd = new FormData();
       for (const v of vues) fd.append('vues', v);
       majVisite(`Répartition de ${vues.length} vues par pièce…`);
-      const r = await api(`/edl/${id}/visite`, { method: 'POST', body: fd });
+      const r = await api(`/edl/${id}/visite`, { method: 'POST', body: fd, reessais: 5 });
       edl = r.edl;
       const remplies = r.repartition.filter((x) => x.ajoutees);
       remplies.forEach((x) => ouvertes.add(x.piece_id));
@@ -691,7 +720,7 @@ async function vueEdl(id) {
         const echecs = [];
         for (const [k, x] of remplies.entries()) {
           majVisite(`Analyse de ${x.nom} (${k + 1}/${remplies.length})…`);
-          try { edl = await api(`/edl-pieces/${x.piece_id}/analyser`, { method: 'POST' }); rendre(); }
+          try { edl = await api(`/edl-pieces/${x.piece_id}/analyser`, { method: 'POST', reessais: 5 }); rendre(); }
           catch (err) { if (err.deconnecte) return; echecs.push(`${x.nom} (${err.message})`); }
         }
         majVisite(echecs.length ? `Analyse terminée, sauf : ${echecs.join(', ')}` : `Terminé — vues par pièce : ${resume}. Vérifiez chaque pièce.`);
